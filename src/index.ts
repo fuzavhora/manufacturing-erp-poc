@@ -57,7 +57,7 @@ const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-application
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
 // Master data is readable by OWNER + STAFF, but only OWNER may create/update/delete it.
-const ownerWriteOnly = async (c: Ctx, next: () => Promise<void>) => {
+const ownerWriteOnly = async (c: any, next: () => Promise<void>) => {
   if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next();
   return ownerOnly(c, next);
 };
