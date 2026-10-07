@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { sign } from 'hono/jwt';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { z } from 'zod';
 import * as T from './db/schema';
@@ -58,7 +58,9 @@ for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 const OWNER_ONLY_PATHS = ['/api/categories', '/api/units', '/api/vehicles/makes', '/api/vehicles/models', '/api/vehicles/variants', '/api/items', '/api/product-applications', '/api/boms'];
 for (const p of OWNER_ONLY_PATHS) {
   app.use(p, ownerOnly);
+  app.use(`${p}/*`, ownerOnly);
 }
+app.use('/api/production', ownerOrStaff);
 app.use('/api/production/*', ownerOrStaff);
 
 app.get('/api/auth/me', async (c) => {
