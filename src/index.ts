@@ -29,6 +29,7 @@ app.onError((e: any, c) => {
 });
 
 // ---------- public ----------
+app.get('/health', (c) => c.json({ ok: true }));
 const issue = (c: any, sub: string, org: string | null) => sign({ sub, org, exp: Math.floor(Date.now() / 1000) + TOKEN_TTL }, c.env.JWT_SECRET, 'HS256');
 const orgsOf = (db: any, userId: string) => db.select({ id: T.organizations.id, name: T.organizations.name, code: T.organizations.code, role: T.memberships.role })
   .from(T.memberships).innerJoin(T.organizations, eq(T.memberships.organizationId, T.organizations.id))
