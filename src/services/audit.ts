@@ -1,6 +1,6 @@
 import * as T from '../db/schema';
 
-export async function audit(
+export function auditStatement(
   db: any,
   input: {
     organizationId: string;
@@ -11,7 +11,7 @@ export async function audit(
     metadata?: unknown;
   },
 ) {
-  await db.insert(T.auditLog).values({
+  return db.insert(T.auditLog).values({
     id: crypto.randomUUID(),
     organizationId: input.organizationId,
     userId: input.userId,
@@ -20,4 +20,8 @@ export async function audit(
     entityId: input.entityId ?? null,
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
   });
+}
+
+export async function audit(db: any, input: Parameters<typeof auditStatement>[1]) {
+  await auditStatement(db, input);
 }
