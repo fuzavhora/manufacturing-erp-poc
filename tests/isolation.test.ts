@@ -65,7 +65,17 @@ describe('BOM + production', () => {
     expect(after['RM-PVC-001']).toBeCloseTo(before['RM-PVC-001'] - 25); expect(after['RM-ADH-001']).toBeCloseTo(before['RM-ADH-001'] - 0.5);
     expect(after['FG-MAT-001']).toBe((before['FG-MAT-001'] ?? 0) + 2);
   });
-  it('12 production rolls back / writes nothing when material is insufficient', async () => {
+  it('12 concurrent production cannot overdraw shared raw stock', async () => {
+    const before = await stock(car);
+    const requests = [1, 2].map(() => call('/api/production', car, 'POST', { finishedItemId: fg.id, vehicleApplicationId: app.id, quantity: 6 }));
+    const results = await Promise.all(requests);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    const after = await stock(car);
+    expect(after['RM-PVC-001']).toBeCloseTo(before['RM-PVC-001'] - 75);
+    expect(after['RM-CARPET-001']).toBeCloseTo(before['RM-CARPET-001'] - 48);
+  });
+
+  it('13 production rolls back / writes nothing when material is insufficient', async () => {
     const before = await stock(car);
     const r = await call('/api/production', car, 'POST', { finishedItemId: fg.id, vehicleApplicationId: app.id, quantity: 1000 });
     expect(r.status).toBe(409); expect(r.json.shortages.length).toBeGreaterThan(0);
