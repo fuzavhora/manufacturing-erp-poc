@@ -77,7 +77,7 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
     )
   `;
 
-  await db.batch([ledgerWrite, auditWrite]);
+  await db.run(ledgerWrite);
   const [committed] = await db.select({ id: T.stockLedger.id }).from(T.stockLedger)
     .where(and(eq(T.stockLedger.organizationId, org), eq(T.stockLedger.refType, 'PRODUCTION'), eq(T.stockLedger.refId, ref))).limit(1);
   if (!committed) {
@@ -86,6 +86,9 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
       .map((r) => ({ itemId: r.itemId, name: name(r.itemId), required: r.required, available: latest[r.itemId]?.current ?? 0 }));
     throw new HttpError(409, 'Insufficient stock', { shortages: finalShortages.length ? finalShortages : shortages });
   }
+
+  // Audit only after the production write is confirmed. The stock write itself is a single atomic SQL statement.
+  await db.run(auditWrite);
 
   return { productionRef: ref, bomId: bom.id, consumed: req.map((r) => ({ ...r, name: name(r.itemId) })), produced: { itemId: p.finishedItemId, name: fg.name, quantity: p.quantity } };
 }
