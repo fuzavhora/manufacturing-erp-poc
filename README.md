@@ -81,3 +81,8 @@ Production tab → Premium 7D Car Mat → qty 2 → Stock tab shows raw down, fi
 
 ## CI
 GitHub Actions runs Node 22 installation, typecheck, frontend build, local D1 migration, local Worker startup, and the full integration test suite for Phase 1 pull requests.
+
+
+## Phase 1 CI
+
+Phase 1 validation runs automatically on pushes to feature branches and pull requests targeting `main`.
