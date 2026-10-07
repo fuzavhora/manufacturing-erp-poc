@@ -68,3 +68,12 @@ Production tab → Premium 7D Car Mat → qty 2 → Stock tab shows raw down, fi
 - Atomicity: D1 `batch()` is one transaction. Stock is pre-checked first; for hard concurrency safety under simultaneous production runs add a guard statement in the batch (out of PoC scope).
 - BOM line unit = item base unit (no unit conversion). Low-stock threshold hard-coded at 20. IndexedDB intentionally skipped.
 - Expected cost: Workers Free (100k req/day), D1 Free (5M reads/day, 100k writes/day, 5 GB) and Pages Free → **$0** for this PoC. Workers Paid is $5/month if you outgrow it; check Cloudflare pricing for current numbers.
+
+
+## Phase 1 — ERP foundation hardening
+
+- RBAC is enforced server-side: OWNER controls master-data mutations; OWNER and STAFF may execute production.
+- Audit log records CREATE/UPDATE/DELETE master-data mutations and production creation, scoped by organization.
+- Audit log access is OWNER-only and limited to the latest 100 entries.
+- Client-provided organization IDs are never trusted; tenant context still comes only from the signed JWT and active membership.
+- Phase 1 is intentionally not the full production security layer yet. Refresh-token rotation, password reset, rate limiting/lockout, concurrency-safe stock guards, tenant-aware composite foreign keys, and backup/restore remain later phases.
