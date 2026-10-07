@@ -5,9 +5,8 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "manufacturing-erp-db"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"   # local dev works with any value
+database_id = "30db7da4-c31f-43d8-9a5e-81eedbe93914"
 migrations_dir = "migrations"
 
 [vars]
-ALLOWED_ORIGIN = "*"   # set to your Pages URL in production
-# Secrets (never commit): wrangler secret put JWT_SECRET
+ALLOWED_ORIGIN = "https://562dce40.manufacturing-erp-web.pages.dev"
