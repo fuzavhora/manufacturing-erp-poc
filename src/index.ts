@@ -11,7 +11,7 @@ import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
 import { ownerOnly, ownerOrStaff } from './lib/permissions';
-import { audit } from './services/audit';
+import { audit, auditStatement } from './services/audit';
 
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
@@ -195,8 +195,7 @@ const stockRows = async (db: any, org: string) => {
 app.get('/api/stock', async (c) => c.json(await stockRows(c.get('db'), c.get('orgId')!)));
 app.post('/api/production', async (c) => {
   const b = parse(z.object({ finishedItemId: s, vehicleApplicationId: s, quantity: z.number().positive() }), await c.req.json());
-  const result = await produce(c.get('db'), c.get('orgId')!, b);
-  await audit(c.get('db'), { organizationId: c.get('orgId')!, userId: c.get('userId'), action: 'CREATE', entityType: 'production', entityId: result.productionRef, metadata: { finishedItemId: b.finishedItemId, quantity: b.quantity } });
+  const result = await produce(c.get('db'), c.get('orgId')!, b, c.get('userId'));
   return c.json(result, 201);
 });
 const LOW_STOCK = 20; // PoC threshold
