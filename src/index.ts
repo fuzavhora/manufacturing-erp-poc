@@ -115,9 +115,10 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     await check(c, b);
     const org = c.get('orgId') as string;
     const db = c.get('db');
+    const id = crypto.randomUUID();
     const [ins] = await db.batch([
-      db.insert(t).values({ ...b, organizationId: org }).returning(),
-      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: path }),
+      db.insert(t).values({ ...b, id, organizationId: org }).returning(),
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: id }),
     ]);
     const r = ins.results?.[0];
     if (!r) throw new HttpError(500, 'Create failed');
