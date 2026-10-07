@@ -58,3 +58,7 @@ jobs:
 
       - name: Integration tests
         run: npm test
+
+      - name: Worker log on failure
+        if: failure()
+        run: cat worker.log || true
