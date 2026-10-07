@@ -77,3 +77,7 @@ Production tab → Premium 7D Car Mat → qty 2 → Stock tab shows raw down, fi
 - Audit log access is OWNER-only and limited to the latest 100 entries.
 - Client-provided organization IDs are never trusted; tenant context still comes only from the signed JWT and active membership.
 - Phase 1 is intentionally not the full production security layer yet. Refresh-token rotation, password reset, rate limiting/lockout, concurrency-safe stock guards, tenant-aware composite foreign keys, and backup/restore remain later phases.
+
+
+## CI
+GitHub Actions runs Node 22 installation, typecheck, frontend build, local D1 migration, local Worker startup, and the full integration test suite for Phase 1 pull requests.
