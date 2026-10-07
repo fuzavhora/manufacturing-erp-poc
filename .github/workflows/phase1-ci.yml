@@ -1,0 +1,60 @@
+name: ERP Phase 1 CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "feat/**"]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Prepare local Worker secrets
+        run: |
+          cat > .dev.vars <<'EOF'
+          JWT_SECRET=ci-only-test-secret-change-me
+          ENABLE_SEED=true
+          EOF
+
+      - name: Apply local D1 migrations
+        run: npm run db:migrate:local
+
+      - name: Start local Worker
+        run: |
+          npm run dev -- --ip 127.0.0.1 > worker.log 2>&1 &
+          echo $! > worker.pid
+
+      - name: Wait for Worker
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8787/api/auth/login >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat worker.log
+          exit 1
+
+      - name: Integration tests
+        run: npm test
