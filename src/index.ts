@@ -10,6 +10,8 @@ import { verifyPw } from './lib/crypto';
 import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
+import { ownerOnly, ownerOrStaff } from './lib/permissions';
+import { audit } from './services/audit';
 
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
@@ -50,8 +52,14 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 
 // ---------- authenticated (no org needed) ----------
 app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() : auth(c, next)));
-const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard'];
+const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
+
+const OWNER_ONLY_PATHS = ['/api/categories', '/api/units', '/api/vehicles/makes', '/api/vehicles/models', '/api/vehicles/variants', '/api/items', '/api/product-applications', '/api/boms'];
+for (const p of OWNER_ONLY_PATHS) {
+  app.use(p, ownerOnly);
+}
+app.use('/api/production/*', ownerOrStaff);
 
 app.get('/api/auth/me', async (c) => {
   const db = c.get('db');
@@ -59,6 +67,14 @@ app.get('/api/auth/me', async (c) => {
   return c.json({ user, orgId: c.get('orgId'), organizations: await orgsOf(db, c.get('userId')) });
 });
 app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.get('userId'))));
+app.get('/api/audit', async (c) => {
+  const org = c.get('orgId')!;
+  const rows = await c.get('db').select().from(T.auditLog)
+    .where(eq(T.auditLog.organizationId, org))
+    .orderBy(desc(T.auditLog.createdAt)).limit(100);
+  return c.json(rows);
+});
+
 app.post('/api/organizations/switch', async (c) => {
   const { organizationId } = parse(z.object({ organizationId: z.string() }), await c.req.json());
   const mine = await orgsOf(c.get('db'), c.get('userId'));
@@ -85,18 +101,21 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     const b = parse(zs, await c.req.json()); // zod strips unknown keys, incl. any client-sent organizationId
     await check(c, b);
     const [r] = await c.get('db').insert(t).values({ ...b, organizationId: c.get('orgId') }).returning();
+    await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: r.id });
     return c.json(r, 201);
   });
   app.patch(`${path}/:id`, async (c) => {
     const b = parse(zs.partial(), await c.req.json());
     await check(c, b);
     const [r] = await c.get('db').update(t).set(b).where(and(eq(t.id, c.req.param('id')), scope(c))).returning();
+    if (r) await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: r.id });
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
   app.delete(`${path}/:id`, async (c) => { // soft-deactivate when the table supports it
     const w = and(eq(t.id, c.req.param('id')), scope(c));
     const q = 'isActive' in t ? c.get('db').update(t).set({ isActive: false }).where(w) : c.get('db').delete(t).where(w);
     const r = await q.returning();
+    if (r.length) await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: r[0].id });
     return r.length ? c.json({ ok: true }) : c.json({ error: 'Not found' }, 404);
   });
 }
@@ -136,6 +155,7 @@ app.post('/api/boms', async (c) => {
     db.insert(T.boms).values({ id, organizationId: org, finishedItemId: fg.id, vehicleApplicationId: ap.id, version: b.version, outputQuantity: b.outputQuantity, outputUnitId: fg.baseUnitId, status: 'ACTIVE' }),
     db.insert(T.bomLines).values(b.lines.map((l, k) => ({ organizationId: org, bomId: id, itemId: l.itemId, quantity: l.quantity, unitId: lineItems[k].baseUnitId, scrapPercent: l.scrapPercent }))),
   ]);
+  await audit(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: 'boms', entityId: id });
   return c.json({ id }, 201);
 });
 const bomWithLines = async (db: any, org: string, where: any) => {
@@ -162,7 +182,9 @@ const stockRows = async (db: any, org: string) => {
 app.get('/api/stock', async (c) => c.json(await stockRows(c.get('db'), c.get('orgId')!)));
 app.post('/api/production', async (c) => {
   const b = parse(z.object({ finishedItemId: s, vehicleApplicationId: s, quantity: z.number().positive() }), await c.req.json());
-  return c.json(await produce(c.get('db'), c.get('orgId')!, b), 201);
+  const result = await produce(c.get('db'), c.get('orgId')!, b);
+  await audit(c.get('db'), { organizationId: c.get('orgId')!, userId: c.get('userId'), action: 'CREATE', entityType: 'production', entityId: result.productionRef, metadata: { finishedItemId: b.finishedItemId, quantity: b.quantity } });
+  return c.json(result, 201);
 });
 const LOW_STOCK = 20; // PoC threshold
 app.get('/api/dashboard', async (c) => {
