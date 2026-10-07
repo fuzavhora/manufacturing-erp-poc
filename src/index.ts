@@ -69,6 +69,8 @@ app.get('/api/auth/me', async (c) => {
   return c.json({ user, orgId: c.get('orgId'), organizations: await orgsOf(db, c.get('userId')) });
 });
 app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.get('userId'))));
+app.use('/api/audit', ownerOnly);
+app.use('/api/audit/*', ownerOnly);
 app.get('/api/audit', async (c) => {
   const org = c.get('orgId')!;
   const rows = await c.get('db').select().from(T.auditLog)
@@ -195,7 +197,7 @@ app.get('/api/dashboard', async (c) => {
   const [o] = await c.get('db').select().from(T.organizations).where(eq(T.organizations.id, org));
   return c.json({ company: o.name, totalItems: rows.length, rawMaterials: rows.filter((r: any) => r.itemType === 'RAW_MATERIAL').length,
     finishedGoods: rows.filter((r: any) => r.itemType === 'FINISHED_GOOD').length, lowStock: rows.filter((r: any) => r.current < LOW_STOCK).length,
-    ledgerEntries: entries.length, debug: { activeOrganizationId: org, role: c.get('role') } });
+    ledgerEntries: entries.length, });
 });
 
 export default app;
