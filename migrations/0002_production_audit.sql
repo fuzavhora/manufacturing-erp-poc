@@ -2,7 +2,7 @@ ALTER TABLE `stock_ledger` ADD COLUMN `created_by` text REFERENCES `users`(`id`)
 --> statement-breakpoint
 CREATE TRIGGER `trg_production_stock_audit`
 AFTER INSERT ON `stock_ledger`
-WHEN NEW.ref_type = 'PRODUCTION' AND NEW.created_by IS NOT NULL
+WHEN NEW.ref_type = 'PRODUCTION' AND NEW.created_by IS NOT NULL AND NEW.qty_in > 0
 BEGIN
   INSERT INTO `audit_log`
     (`id`, `organization_id`, `user_id`, `action`, `entity_type`, `entity_id`, `metadata`, `created_at`)
