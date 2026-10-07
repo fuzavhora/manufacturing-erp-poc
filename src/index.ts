@@ -189,8 +189,8 @@ app.post('/api/boms', async (c) => {
   await db.batch([
     db.insert(T.boms).values({ id, organizationId: org, finishedItemId: fg.id, vehicleApplicationId: ap.id, version: b.version, outputQuantity: b.outputQuantity, outputUnitId: fg.baseUnitId, status: 'ACTIVE' }),
     db.insert(T.bomLines).values(b.lines.map((l, k) => ({ organizationId: org, bomId: id, itemId: l.itemId, quantity: l.quantity, unitId: lineItems[k].baseUnitId, scrapPercent: l.scrapPercent }))),
+    auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: 'boms', entityId: id }),
   ]);
-  await audit(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: 'boms', entityId: id });
   return c.json({ id }, 201);
 });
 const bomWithLines = async (db: any, org: string, where: any) => {
