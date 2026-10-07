@@ -64,7 +64,6 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
       ) s ON s.item_id = r.item_id
       WHERE COALESCE(s.current_qty, 0) < r.required - 1e-9
     )
-    RETURNING id
   `;
 
   const auditWrite = sql`
