@@ -64,6 +64,9 @@ describe('BOM + production', () => {
     const after = await stock(car);
     expect(after['RM-PVC-001']).toBeCloseTo(before['RM-PVC-001'] - 25); expect(after['RM-ADH-001']).toBeCloseTo(before['RM-ADH-001'] - 0.5);
     expect(after['FG-MAT-001']).toBe((before['FG-MAT-001'] ?? 0) + 2);
+    const audit = await call('/api/audit', car);
+    expect(audit.status).toBe(200);
+    expect(audit.json.some((x: any) => x.entityType === 'production' && x.entityId === r.json.productionRef)).toBe(true);
   });
   it('12 concurrent production cannot overdraw shared raw stock', async () => {
     const before = await stock(car);
