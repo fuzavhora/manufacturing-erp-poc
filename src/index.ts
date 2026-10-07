@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { sign } from 'hono/jwt';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { z } from 'zod';
 import * as T from './db/schema';
@@ -10,6 +10,8 @@ import { verifyPw } from './lib/crypto';
 import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
+import { ownerOnly, ownerOrStaff } from './lib/permissions';
+import { auditStatement } from './services/audit';
 
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
@@ -27,6 +29,7 @@ app.onError((e: any, c) => {
 });
 
 // ---------- public ----------
+app.get('/health', (c) => c.json({ ok: true }));
 const issue = (c: any, sub: string, org: string | null) => sign({ sub, org, exp: Math.floor(Date.now() / 1000) + TOKEN_TTL }, c.env.JWT_SECRET, 'HS256');
 const orgsOf = (db: any, userId: string) => db.select({ id: T.organizations.id, name: T.organizations.name, code: T.organizations.code, role: T.memberships.role })
   .from(T.memberships).innerJoin(T.organizations, eq(T.memberships.organizationId, T.organizations.id))
@@ -50,8 +53,21 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 
 // ---------- authenticated (no org needed) ----------
 app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() : auth(c, next)));
-const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard'];
+const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
+
+// Master data is readable by OWNER + STAFF, but only OWNER may create/update/delete it.
+const ownerWriteOnly = async (c: any, next: () => Promise<void>) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next();
+  return ownerOnly(c, next);
+};
+const OWNER_ONLY_PATHS = ['/api/categories', '/api/units', '/api/vehicles/makes', '/api/vehicles/models', '/api/vehicles/variants', '/api/items', '/api/product-applications', '/api/boms'];
+for (const p of OWNER_ONLY_PATHS) {
+  app.use(p, ownerWriteOnly);
+  app.use(`${p}/*`, ownerWriteOnly);
+}
+app.use('/api/production', ownerOrStaff);
+app.use('/api/production/*', ownerOrStaff);
 
 app.get('/api/auth/me', async (c) => {
   const db = c.get('db');
@@ -59,6 +75,17 @@ app.get('/api/auth/me', async (c) => {
   return c.json({ user, orgId: c.get('orgId'), organizations: await orgsOf(db, c.get('userId')) });
 });
 app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.get('userId'))));
+app.use('/api/audit', ownerOnly);
+app.use('/api/audit/*', ownerOnly);
+app.get('/api/audit', async (c) => {
+  const org = c.get('orgId');
+  if (!org) return c.json({ error: 'Select a company first' }, 403);
+  const rows = await c.get('db').select().from(T.auditLog)
+    .where(eq(T.auditLog.organizationId, org))
+    .orderBy(desc(T.auditLog.createdAt)).limit(100);
+  return c.json(rows);
+});
+
 app.post('/api/organizations/switch', async (c) => {
   const { organizationId } = parse(z.object({ organizationId: z.string() }), await c.req.json());
   const mine = await orgsOf(c.get('db'), c.get('userId'));
@@ -72,32 +99,59 @@ const owns = async (db: any, t: any, id: string, org: string) =>
 
 function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, any> = {}, pre?: (db: any, org: string, b: any) => Promise<void>) {
   const check = async (c: any, b: any) => {
-    for (const [k, rt] of Object.entries(refs)) if (b[k] && !(await owns(c.get('db'), rt, b[k], c.get('orgId')))) throw new HttpError(422, `${k} not found in this company`);
-    await pre?.(c.get('db'), c.get('orgId'), b);
+    const org = c.get('orgId');
+    if (!org) throw new HttpError(403, 'Select a company first');
+    for (const [k, rt] of Object.entries(refs)) if (b[k] && !(await owns(c.get('db'), rt, b[k], org))) throw new HttpError(422, `${k} not found in this company`);
+    await pre?.(c.get('db'), org, b);
   };
-  const scope = (c: any) => eq(t.organizationId, c.get('orgId')); // org ALWAYS from token
+  const scope = (c: any) => eq(t.organizationId, c.get('orgId') as string);
   app.get(path, async (c) => c.json(await c.get('db').select().from(t).where(scope(c))));
   app.get(`${path}/:id`, async (c) => {
     const [r] = await c.get('db').select().from(t).where(and(eq(t.id, c.req.param('id')), scope(c)));
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
   app.post(path, async (c) => {
-    const b = parse(zs, await c.req.json()); // zod strips unknown keys, incl. any client-sent organizationId
+    const b = parse(zs, await c.req.json());
     await check(c, b);
-    const [r] = await c.get('db').insert(t).values({ ...b, organizationId: c.get('orgId') }).returning();
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const id = crypto.randomUUID();
+    await db.batch([
+      db.insert(t).values({ ...b, id, organizationId: org }),
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: id }),
+    ]);
+    const [r] = await db.select().from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
+    if (!r) throw new HttpError(500, 'Create failed');
     return c.json(r, 201);
   });
   app.patch(`${path}/:id`, async (c) => {
     const b = parse(zs.partial(), await c.req.json());
     await check(c, b);
-    const [r] = await c.get('db').update(t).set(b).where(and(eq(t.id, c.req.param('id')), scope(c))).returning();
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const id = c.req.param('id');
+    const [before] = await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
+    if (!before) return c.json({ error: 'Not found' }, 404);
+    await db.batch([
+      db.update(t).set(b).where(and(eq(t.id, id), eq(t.organizationId, org))),
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: id }),
+    ]);
+    const [r] = await db.select().from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
-  app.delete(`${path}/:id`, async (c) => { // soft-deactivate when the table supports it
-    const w = and(eq(t.id, c.req.param('id')), scope(c));
-    const q = 'isActive' in t ? c.get('db').update(t).set({ isActive: false }).where(w) : c.get('db').delete(t).where(w);
-    const r = await q.returning();
-    return r.length ? c.json({ ok: true }) : c.json({ error: 'Not found' }, 404);
+  app.delete(`${path}/:id`, async (c) => {
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const id = c.req.param('id');
+    const [before] = await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
+    if (!before) return c.json({ error: 'Not found' }, 404);
+    const w = and(eq(t.id, id), eq(t.organizationId, org));
+    const q = 'isActive' in t ? db.update(t).set({ isActive: false }).where(w) : db.delete(t).where(w);
+    await db.batch([
+      q,
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: id }),
+    ]);
+    return c.json({ ok: true });
   });
 }
 const s = z.string().min(1), opt = z.string().nullish();
@@ -135,6 +189,7 @@ app.post('/api/boms', async (c) => {
   await db.batch([
     db.insert(T.boms).values({ id, organizationId: org, finishedItemId: fg.id, vehicleApplicationId: ap.id, version: b.version, outputQuantity: b.outputQuantity, outputUnitId: fg.baseUnitId, status: 'ACTIVE' }),
     db.insert(T.bomLines).values(b.lines.map((l, k) => ({ organizationId: org, bomId: id, itemId: l.itemId, quantity: l.quantity, unitId: lineItems[k].baseUnitId, scrapPercent: l.scrapPercent }))),
+    auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: 'boms', entityId: id }),
   ]);
   return c.json({ id }, 201);
 });
@@ -162,7 +217,8 @@ const stockRows = async (db: any, org: string) => {
 app.get('/api/stock', async (c) => c.json(await stockRows(c.get('db'), c.get('orgId')!)));
 app.post('/api/production', async (c) => {
   const b = parse(z.object({ finishedItemId: s, vehicleApplicationId: s, quantity: z.number().positive() }), await c.req.json());
-  return c.json(await produce(c.get('db'), c.get('orgId')!, b), 201);
+  const result = await produce(c.get('db'), c.get('orgId')!, b, c.get('userId'));
+  return c.json(result, 201);
 });
 const LOW_STOCK = 20; // PoC threshold
 app.get('/api/dashboard', async (c) => {
@@ -171,7 +227,7 @@ app.get('/api/dashboard', async (c) => {
   const [o] = await c.get('db').select().from(T.organizations).where(eq(T.organizations.id, org));
   return c.json({ company: o.name, totalItems: rows.length, rawMaterials: rows.filter((r: any) => r.itemType === 'RAW_MATERIAL').length,
     finishedGoods: rows.filter((r: any) => r.itemType === 'FINISHED_GOOD').length, lowStock: rows.filter((r: any) => r.current < LOW_STOCK).length,
-    ledgerEntries: entries.length, debug: { activeOrganizationId: org, role: c.get('role') } });
+    ledgerEntries: entries.length, });
 });
 
 export default app;

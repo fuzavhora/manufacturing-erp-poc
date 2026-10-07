@@ -12,7 +12,8 @@ export const auth = createMiddleware<Ctx>(async (c, next) => {
   if (!h.startsWith('Bearer ')) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const p: any = await verify(h.slice(7), c.env.JWT_SECRET, 'HS256');
-    c.set('userId', p.sub); c.set('orgId', p.org ?? null);
+    if (typeof p?.sub !== 'string' || !p.sub) return c.json({ error: 'Unauthorized' }, 401);
+    c.set('userId', p.sub); c.set('orgId', typeof p.org === 'string' ? p.org : null);
   } catch { return c.json({ error: 'Unauthorized' }, 401); }
   c.set('db', drizzle(c.env.DB));
   await next();

@@ -64,11 +64,48 @@ describe('BOM + production', () => {
     const after = await stock(car);
     expect(after['RM-PVC-001']).toBeCloseTo(before['RM-PVC-001'] - 25); expect(after['RM-ADH-001']).toBeCloseTo(before['RM-ADH-001'] - 0.5);
     expect(after['FG-MAT-001']).toBe((before['FG-MAT-001'] ?? 0) + 2);
+    const audit = await call('/api/audit', car);
+    expect(audit.status).toBe(200);
+    expect(audit.json.some((x: any) => x.entityType === 'production' && x.entityId === r.json.productionRef)).toBe(true);
   });
-  it('12 production rolls back / writes nothing when material is insufficient', async () => {
+  it('12 concurrent production cannot overdraw shared raw stock', async () => {
+    const before = await stock(car);
+    const requests = [1, 2].map(() => call('/api/production', car, 'POST', { finishedItemId: fg.id, vehicleApplicationId: app.id, quantity: 6 }));
+    const results = await Promise.all(requests);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    const after = await stock(car);
+    expect(after['RM-PVC-001']).toBeCloseTo(before['RM-PVC-001'] - 75);
+    expect(after['RM-CARPET-001']).toBeCloseTo(before['RM-CARPET-001'] - 48);
+  });
+
+  it('13 production rolls back / writes nothing when material is insufficient', async () => {
     const before = await stock(car);
     const r = await call('/api/production', car, 'POST', { finishedItemId: fg.id, vehicleApplicationId: app.id, quantity: 1000 });
     expect(r.status).toBe(409); expect(r.json.shortages.length).toBeGreaterThan(0);
     expect(await stock(car)).toEqual(before);
+  });
+});
+
+
+describe('phase 1 RBAC + audit', () => {
+  it('13 staff is denied owner-only item mutations', async () => {
+    const staff = await into('staff@demo.com', 'Carstuff');
+    const r = await newItem(staff.token, 'RBAC-' + rnd(), carUnit);
+    expect(r.status).toBe(403);
+  });
+
+  it('14 owner can mutate item and audit log records the action', async () => {
+    const sku = 'AUD-' + rnd();
+    const r = await newItem(car, sku, carUnit);
+    expect(r.status).toBe(201);
+    const logs = await call('/api/audit', car);
+    expect(logs.status).toBe(200);
+    expect(logs.json.some((x: any) => x.action === 'CREATE' && x.entityType === '/api/items' && x.entityId === r.json.id)).toBe(true);
+  });
+
+  it('15 staff can read tenant data but cannot read audit log', async () => {
+    const staff = await into('staff@demo.com', 'Carstuff');
+    expect((await call('/api/items', staff.token)).status).toBe(200);
+    expect((await call('/api/audit', staff.token)).status).toBe(403);
   });
 });

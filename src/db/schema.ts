@@ -69,6 +69,13 @@ export const bomLines = sqliteTable('bom_lines', {
 export const stockLedger = sqliteTable('stock_ledger', {
   id: pk(), organizationId: orgCol(), itemId: text('item_id').notNull().references(() => items.id),
   qtyIn: real('qty_in').notNull().default(0), qtyOut: real('qty_out').notNull().default(0),
+  createdBy: text('created_by').references(() => users.id),
   unitId: text('unit_id').notNull().references(() => units.id),
   refType: text('ref_type').notNull(), refId: text('ref_id').notNull(), createdAt: created(),
 }, (t) => [index('ix_led_org_item').on(t.organizationId, t.itemId), index('ix_led_org_created').on(t.organizationId, t.createdAt)]);
+
+export const auditLog = sqliteTable('audit_log', {
+  id: pk(), organizationId: orgCol(), userId: text('user_id').notNull().references(() => users.id),
+  action: text('action').notNull(), entityType: text('entity_type').notNull(), entityId: text('entity_id'),
+  metadata: text('metadata'), createdAt: created(),
+}, (t) => [index('ix_audit_org_created').on(t.organizationId, t.createdAt), index('ix_audit_org_entity').on(t.organizationId, t.entityType, t.entityId)]);
