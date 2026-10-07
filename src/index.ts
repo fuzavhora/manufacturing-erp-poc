@@ -94,10 +94,12 @@ const owns = async (db: any, t: any, id: string, org: string) =>
 
 function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, any> = {}, pre?: (db: any, org: string, b: any) => Promise<void>) {
   const check = async (c: any, b: any) => {
-    for (const [k, rt] of Object.entries(refs)) if (b[k] && !(await owns(c.get('db'), rt, b[k], c.get('orgId')))) throw new HttpError(422, `${k} not found in this company`);
-    await pre?.(c.get('db'), c.get('orgId'), b);
+    const org = c.get('orgId');
+    if (!org) throw new HttpError(403, 'Select a company first');
+    for (const [k, rt] of Object.entries(refs)) if (b[k] && !(await owns(c.get('db'), rt, b[k], org))) throw new HttpError(422, `${k} not found in this company`);
+    await pre?.(c.get('db'), org, b);
   };
-  const scope = (c: any) => eq(t.organizationId, c.get('orgId')); // org ALWAYS from token
+  const scope = (c: any) => eq(t.organizationId, c.get('orgId') as string); // org ALWAYS from token
   app.get(path, async (c) => c.json(await c.get('db').select().from(t).where(scope(c))));
   app.get(`${path}/:id`, async (c) => {
     const [r] = await c.get('db').select().from(t).where(and(eq(t.id, c.req.param('id')), scope(c)));
@@ -107,21 +109,21 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     const b = parse(zs, await c.req.json()); // zod strips unknown keys, incl. any client-sent organizationId
     await check(c, b);
     const [r] = await c.get('db').insert(t).values({ ...b, organizationId: c.get('orgId') }).returning();
-    await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: r.id });
+    await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: r.id });
     return c.json(r, 201);
   });
   app.patch(`${path}/:id`, async (c) => {
     const b = parse(zs.partial(), await c.req.json());
     await check(c, b);
     const [r] = await c.get('db').update(t).set(b).where(and(eq(t.id, c.req.param('id')), scope(c))).returning();
-    if (r) await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: r.id });
+    if (r) await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: r.id });
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
   app.delete(`${path}/:id`, async (c) => { // soft-deactivate when the table supports it
     const w = and(eq(t.id, c.req.param('id')), scope(c));
     const q = 'isActive' in t ? c.get('db').update(t).set({ isActive: false }).where(w) : c.get('db').delete(t).where(w);
     const r = await q.returning();
-    if (r.length) await audit(c.get('db'), { organizationId: c.get('orgId'), userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: r[0].id });
+    if (r.length) await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: r[0].id });
     return r.length ? c.json({ ok: true }) : c.json({ error: 'Not found' }, 404);
   });
 }
