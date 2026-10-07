@@ -73,17 +73,6 @@ export const stockLedger = sqliteTable('stock_ledger', {
   refType: text('ref_type').notNull(), refId: text('ref_id').notNull(), createdAt: created(),
 }, (t) => [index('ix_led_org_item').on(t.organizationId, t.itemId), index('ix_led_org_created').on(t.organizationId, t.createdAt)]);
 
-export const inventoryBalances = sqliteTable('inventory_balances', {
-  id: pk(),
-  organizationId: orgCol(),
-  itemId: text('item_id').notNull().references(() => items.id),
-  quantity: real('quantity').notNull().default(0),
-  updatedAt: created(),
-}, (t) => [
-  uniqueIndex('uq_balance_org_item').on(t.organizationId, t.itemId),
-  index('ix_balance_org').on(t.organizationId),
-]);
-
 export const auditLog = sqliteTable('audit_log', {
   id: pk(), organizationId: orgCol(), userId: text('user_id').notNull().references(() => users.id),
   action: text('action').notNull(), entityType: text('entity_type').notNull(), entityId: text('entity_id'),
