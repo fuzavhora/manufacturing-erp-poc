@@ -49,9 +49,9 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
       SELECT ${p.finishedItemId}, ${p.quantity}, 0, ${fg.baseUnitId}
     )
     INSERT INTO stock_ledger
-      (id, organization_id, item_id, qty_in, qty_out, unit_id, ref_type, ref_id, created_at)
+      (id, organization_id, item_id, qty_in, qty_out, unit_id, ref_type, ref_id, created_at, created_by)
     SELECT lower(hex(randomblob(16))), ${org}, item_id, qty_in, qty_out, unit_id,
-           'PRODUCTION', ${ref}, datetime('now')
+           'PRODUCTION', ${ref}, datetime('now'), ${userId}
     FROM entries
     WHERE NOT EXISTS (
       SELECT 1
@@ -66,17 +66,6 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
     )
   `;
 
-  const auditWrite = sql`
-    INSERT INTO audit_log
-      (id, organization_id, user_id, action, entity_type, entity_id, metadata, created_at)
-    SELECT lower(hex(randomblob(16))), ${org}, ${userId}, 'CREATE', 'production', ${ref},
-           ${JSON.stringify({ finishedItemId: p.finishedItemId, quantity: p.quantity })}, datetime('now')
-    WHERE EXISTS (
-      SELECT 1 FROM stock_ledger
-      WHERE organization_id = ${org} AND ref_type = 'PRODUCTION' AND ref_id = ${ref}
-    )
-  `;
-
   await db.run(ledgerWrite);
   const [committed] = await db.select({ id: T.stockLedger.id }).from(T.stockLedger)
     .where(and(eq(T.stockLedger.organizationId, org), eq(T.stockLedger.refType, 'PRODUCTION'), eq(T.stockLedger.refId, ref))).limit(1);
@@ -86,9 +75,6 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
       .map((r) => ({ itemId: r.itemId, name: name(r.itemId), required: r.required, available: latest[r.itemId]?.current ?? 0 }));
     throw new HttpError(409, 'Insufficient stock', { shortages: finalShortages.length ? finalShortages : shortages });
   }
-
-  // Audit only after the production write is confirmed. The stock write itself is a single atomic SQL statement.
-  await db.run(auditWrite);
 
   return { productionRef: ref, bomId: bom.id, consumed: req.map((r) => ({ ...r, name: name(r.itemId) })), produced: { itemId: p.finishedItemId, name: fg.name, quantity: p.quantity } };
 }
