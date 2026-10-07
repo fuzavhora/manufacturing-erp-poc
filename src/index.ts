@@ -11,7 +11,7 @@ import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
 import { ownerOnly, ownerOrStaff } from './lib/permissions';
-import { audit } from './services/audit';
+import { audit, auditStatement } from './services/audit';
 
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
@@ -104,32 +104,53 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     for (const [k, rt] of Object.entries(refs)) if (b[k] && !(await owns(c.get('db'), rt, b[k], org))) throw new HttpError(422, `${k} not found in this company`);
     await pre?.(c.get('db'), org, b);
   };
-  const scope = (c: any) => eq(t.organizationId, c.get('orgId') as string); // org ALWAYS from token
+  const scope = (c: any) => eq(t.organizationId, c.get('orgId') as string);
   app.get(path, async (c) => c.json(await c.get('db').select().from(t).where(scope(c))));
   app.get(`${path}/:id`, async (c) => {
     const [r] = await c.get('db').select().from(t).where(and(eq(t.id, c.req.param('id')), scope(c)));
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
   app.post(path, async (c) => {
-    const b = parse(zs, await c.req.json()); // zod strips unknown keys, incl. any client-sent organizationId
+    const b = parse(zs, await c.req.json());
     await check(c, b);
-    const [r] = await c.get('db').insert(t).values({ ...b, organizationId: c.get('orgId') }).returning();
-    await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: r.id });
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const [ins] = await db.batch([
+      db.insert(t).values({ ...b, organizationId: org }).returning(),
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: path }),
+    ]);
+    const r = ins.results?.[0];
+    if (!r) throw new HttpError(500, 'Create failed');
     return c.json(r, 201);
   });
   app.patch(`${path}/:id`, async (c) => {
     const b = parse(zs.partial(), await c.req.json());
     await check(c, b);
-    const [r] = await c.get('db').update(t).set(b).where(and(eq(t.id, c.req.param('id')), scope(c))).returning();
-    if (r) await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: r.id });
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const id = c.req.param('id');
+    const [before] = await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
+    if (!before) return c.json({ error: 'Not found' }, 404);
+    const [upd] = await db.batch([
+      db.update(t).set(b).where(and(eq(t.id, id), eq(t.organizationId, org))).returning(),
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: id }),
+    ]);
+    const r = upd.results?.[0];
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
-  app.delete(`${path}/:id`, async (c) => { // soft-deactivate when the table supports it
-    const w = and(eq(t.id, c.req.param('id')), scope(c));
-    const q = 'isActive' in t ? c.get('db').update(t).set({ isActive: false }).where(w) : c.get('db').delete(t).where(w);
-    const r = await q.returning();
-    if (r.length) await audit(c.get('db'), { organizationId: c.get('orgId') as string, userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: r[0].id });
-    return r.length ? c.json({ ok: true }) : c.json({ error: 'Not found' }, 404);
+  app.delete(`${path}/:id`, async (c) => {
+    const org = c.get('orgId') as string;
+    const db = c.get('db');
+    const id = c.req.param('id');
+    const [before] = await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
+    if (!before) return c.json({ error: 'Not found' }, 404);
+    const w = and(eq(t.id, id), eq(t.organizationId, org));
+    const q = 'isActive' in t ? db.update(t).set({ isActive: false }).where(w) : db.delete(t).where(w);
+    await db.batch([
+      q,
+      auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'DELETE', entityType: path, entityId: id }),
+    ]);
+    return c.json({ ok: true });
   });
 }
 const s = z.string().min(1), opt = z.string().nullish();
