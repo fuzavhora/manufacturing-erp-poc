@@ -11,7 +11,7 @@ import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
 import { ownerOnly, ownerOrStaff } from './lib/permissions';
-import { audit, auditStatement } from './services/audit';
+import { auditStatement } from './services/audit';
 
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
