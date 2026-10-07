@@ -78,9 +78,10 @@ export async function produce(db: any, org: string, p: { finishedItemId: string;
     )
   `;
 
-  const result = await db.batch([ledgerWrite, auditWrite]);
-  const inserted = result[0]?.results?.length ?? result[0]?.meta?.changes ?? 0;
-  if (!inserted) {
+  await db.batch([ledgerWrite, auditWrite]);
+  const [committed] = await db.select({ id: T.stockLedger.id }).from(T.stockLedger)
+    .where(and(eq(T.stockLedger.organizationId, org), eq(T.stockLedger.refType, 'PRODUCTION'), eq(T.stockLedger.refId, ref))).limit(1);
+  if (!committed) {
     const latest = await stockMap(db, org, req.map((r) => r.itemId));
     const finalShortages = req.filter((r) => (latest[r.itemId]?.current ?? 0) < r.required - 1e-9)
       .map((r) => ({ itemId: r.itemId, name: name(r.itemId), required: r.required, available: latest[r.itemId]?.current ?? 0 }));
