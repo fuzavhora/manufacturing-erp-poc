@@ -73,7 +73,8 @@ app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.ge
 app.use('/api/audit', ownerOnly);
 app.use('/api/audit/*', ownerOnly);
 app.get('/api/audit', async (c) => {
-  const org = c.get('orgId')!;
+  const org = c.get('orgId');
+  if (!org) return c.json({ error: 'Select a company first' }, 403);
   const rows = await c.get('db').select().from(T.auditLog)
     .where(eq(T.auditLog.organizationId, org))
     .orderBy(desc(T.auditLog.createdAt)).limit(100);
