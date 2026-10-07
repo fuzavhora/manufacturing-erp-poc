@@ -56,10 +56,15 @@ app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() 
 const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
+// Master data is readable by OWNER + STAFF, but only OWNER may create/update/delete it.
+const ownerWriteOnly = async (c: Ctx, next: () => Promise<void>) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next();
+  return ownerOnly(c, next);
+};
 const OWNER_ONLY_PATHS = ['/api/categories', '/api/units', '/api/vehicles/makes', '/api/vehicles/models', '/api/vehicles/variants', '/api/items', '/api/product-applications', '/api/boms'];
 for (const p of OWNER_ONLY_PATHS) {
-  app.use(p, ownerOnly);
-  app.use(`${p}/*`, ownerOnly);
+  app.use(p, ownerWriteOnly);
+  app.use(`${p}/*`, ownerWriteOnly);
 }
 app.use('/api/production', ownerOrStaff);
 app.use('/api/production/*', ownerOrStaff);
