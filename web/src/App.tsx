@@ -155,7 +155,7 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
         <div className="topbar-actions"><span className="role-pill">{org?.role}</span><span className="user-email">{me.user.email}</span><button className="avatar-button" onClick={onSwitch} title="Switch company">{me.user.email?.slice(0, 1)?.toUpperCase()}</button></div>
       </header>
       <main className="content">
-        {tab === 'Dashboard' && <Dashboard org={org} D={D} onNavigate={selectTab} />}
+        {tab === 'Dashboard' && <Dashboard org={org} D={D} onNavigate={selectTab} isOwner={isOwner} />}
         {tab === 'Categories' && <Crud title="Categories" singular="Category" path="/categories" rows={D.cats} reload={reload} fields={[{ k: 'name', l: 'Name', required: true }, { k: 'parentId', l: 'Parent category', sel: opts(D.cats) }]} cols={[['Name', (r) => r.name], ['Parent', (r) => r.parentId ? nm(D.cats, r.parentId) : '—']]} />}
         {tab === 'Units' && <Crud title="Units" singular="Unit" path="/units" rows={D.units} reload={reload} fields={[{ k: 'name', l: 'Name', required: true }, { k: 'symbol', l: 'Symbol', required: true }, { k: 'unitType', l: 'Type', required: true }, { k: 'decimalPrecision', l: 'Decimal places', num: true }]} cols={[['Name', (r) => r.name], ['Symbol', (r) => r.symbol], ['Type', (r) => r.unitType], ['Decimals', (r) => r.decimalPrecision]]} />}
         {tab === 'Vehicles' && <Vehicles D={D} reload={reload} />}
@@ -170,15 +170,17 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
   </div>;
 }
 
-function Dashboard({ org, D, onNavigate }: R) {
+function Dashboard({ org, D, onNavigate, isOwner }: R) {
   const [d, setD] = useState<R | null>(null);
   useEffect(() => { api('/dashboard').then(setD).catch(() => setD({})); }, []);
   if (!d) return <div className="page-state"><div className="spinner" />Loading dashboard…</div>;
 
   const actions = [
-    { title: 'Create item', text: 'Add a raw material or finished good', tab: 'Items', icon: '□' },
-    { title: 'Define vehicle', text: 'Manage makes, models and variants', tab: 'Vehicles', icon: '▤' },
-    { title: 'Create BOM', text: 'Define manufacturing material requirements', tab: 'BOM', icon: '≡' },
+    ...(isOwner ? [
+      { title: 'Create item', text: 'Add a raw material or finished good', tab: 'Items', icon: '□' },
+      { title: 'Define vehicle', text: 'Manage makes, models and variants', tab: 'Vehicles', icon: '▤' },
+      { title: 'Create BOM', text: 'Define manufacturing material requirements', tab: 'BOM', icon: '≡' },
+    ] : []),
     { title: 'Run production', text: 'Consume materials and add finished stock', tab: 'Production', icon: '⚙' },
   ];
 
