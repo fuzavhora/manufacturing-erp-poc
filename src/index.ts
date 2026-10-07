@@ -116,11 +116,11 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     const org = c.get('orgId') as string;
     const db = c.get('db');
     const id = crypto.randomUUID();
-    const [ins] = await db.batch([
-      db.insert(t).values({ ...b, id, organizationId: org }).returning(),
+    await db.batch([
+      db.insert(t).values({ ...b, id, organizationId: org }),
       auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'CREATE', entityType: path, entityId: id }),
     ]);
-    const r = ins.results?.[0];
+    const [r] = await db.select().from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
     if (!r) throw new HttpError(500, 'Create failed');
     return c.json(r, 201);
   });
@@ -132,11 +132,11 @@ function crud(path: string, t: any, zs: z.ZodObject<any>, refs: Record<string, a
     const id = c.req.param('id');
     const [before] = await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
     if (!before) return c.json({ error: 'Not found' }, 404);
-    const [upd] = await db.batch([
-      db.update(t).set(b).where(and(eq(t.id, id), eq(t.organizationId, org))).returning(),
+    await db.batch([
+      db.update(t).set(b).where(and(eq(t.id, id), eq(t.organizationId, org))),
       auditStatement(db, { organizationId: org, userId: c.get('userId'), action: 'UPDATE', entityType: path, entityId: id }),
     ]);
-    const r = upd.results?.[0];
+    const [r] = await db.select().from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1);
     return r ? c.json(r) : c.json({ error: 'Not found' }, 404);
   });
   app.delete(`${path}/:id`, async (c) => {
