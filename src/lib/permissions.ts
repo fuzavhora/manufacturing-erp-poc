@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import type { Ctx } from './middleware';
+import type { Ctx } from '../middleware';
 
 export type Role = 'OWNER' | 'STAFF';
 
