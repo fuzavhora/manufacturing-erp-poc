@@ -101,6 +101,16 @@ app.post('/api/organizations', async (c) => {
 
   const db = c.get('db');
   const userId = c.get('userId');
+
+  // Company creation is an account-owner capability, never a STAFF capability.
+  const ownedMemberships = await db.select({ id: T.memberships.id })
+    .from(T.memberships)
+    .where(and(
+      eq(T.memberships.userId, userId),
+      eq(T.memberships.role, 'OWNER'),
+      eq(T.memberships.status, 'ACTIVE'),
+    ));
+  if (ownedMemberships.length === 0) return c.json({ error: 'Only a company owner can create another company' }, 403);
   const organizationId = crypto.randomUUID();
   const baseCode = (b.code || b.name)
     .toUpperCase()
