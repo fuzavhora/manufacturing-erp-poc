@@ -8,6 +8,7 @@ type Column = [string, (r: R) => any];
 const opts = (rows: R[], f: (r: R) => string = (r) => r.name): [string, string][] =>
   rows.map((r) => [r.id, f(r)]);
 
+const ACTIONS = ['read','create','edit','delete'];
 const NAV = [
   { id: 'Dashboard', label: 'Dashboard', icon: '⌂', perm: 'dashboard.read' },
   { id: 'Categories', label: 'Categories', icon: '▦', perm: 'categories.read' },
@@ -302,8 +303,8 @@ function Roles({ me }: R) {
     try{
       setBusy(true);setErr('');
       if(!name.trim()){setErr('Enter a role name.');return}
-      let r=selected;
-      if(!r){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}})}
+      let r: R;
+      if(!selected){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}})}
       else {
         await api('/roles/'+r.id,{method:'PATCH',body:{name,description}});
         await api('/roles/'+r.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}});
