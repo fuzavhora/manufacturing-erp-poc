@@ -9,4 +9,4 @@ database_id = "30db7da4-c31f-43d8-9a5e-81eedbe93914"
 migrations_dir = "migrations"
 
 [vars]
-ALLOWED_ORIGIN = "https://562dce40.manufacturing-erp-web.pages.dev"
+ALLOWED_ORIGIN = "https://manufacturing-erp-web.pages.dev"
