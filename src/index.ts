@@ -6,7 +6,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { z } from 'zod';
 import * as T from './db/schema';
 import { auth, tenant, type Ctx } from './middleware';
-import { verifyPw } from './lib/crypto';
+import { hashPw, verifyPw } from './lib/crypto';
 import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
@@ -145,6 +145,79 @@ app.delete('/api/roles/:id', async (c) => {
   await db.batch([db.delete(T.rolePermissions).where(eq(T.rolePermissions.roleId,id)),db.delete(T.roles).where(eq(T.roles.id,id)),auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'DELETE',entityType:'/api/roles',entityId:id})]);
   return c.json({ok:true});
 });
+const tokenHash = async (token:string) => {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');
+};
+
+app.get('/api/organization', async (c) => {
+  const org=c.get('orgId') as string;
+  const [row]=await c.get('db').select().from(T.organizations).where(eq(T.organizations.id,org)).limit(1);
+  return row ? c.json(row) : c.json({error:'Not found'},404);
+});
+app.patch('/api/organization', async (c) => {
+  const b=parse(z.object({name:z.string().trim().min(2).max(120)}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db');
+  await db.batch([db.update(T.organizations).set({name:b.name}).where(eq(T.organizations.id,org)),auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'UPDATE',entityType:'/api/organization',entityId:org})]);
+  const [row]=await db.select().from(T.organizations).where(eq(T.organizations.id,org)).limit(1);
+  return c.json(row);
+});
+
+app.get('/api/invitations', async (c) => {
+  const org=c.get('orgId') as string;
+  return c.json(await c.get('db').select({
+    id:T.organizationInvitations.id,email:T.organizationInvitations.email,name:T.organizationInvitations.name,
+    roleId:T.organizationInvitations.roleId,status:T.organizationInvitations.status,expiresAt:T.organizationInvitations.expiresAt,createdAt:T.organizationInvitations.createdAt,
+  }).from(T.organizationInvitations).where(eq(T.organizationInvitations.organizationId,org)));
+});
+app.post('/api/invitations', async (c) => {
+  const b=parse(z.object({name:z.string().trim().min(2).max(120),email:z.string().email(),roleId:z.string()}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), email=b.email.toLowerCase();
+  const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,b.roleId),eq(T.roles.organizationId,org))).limit(1);
+  if(!role || role.name==='OWNER') return c.json({error:'Select a valid staff role'},422);
+  const [existing]=await db.select({id:T.users.id}).from(T.users).where(eq(T.users.email,email)).limit(1);
+  if(existing){
+    const [member]=await db.select({id:T.memberships.id}).from(T.memberships).where(and(eq(T.memberships.userId,existing.id),eq(T.memberships.organizationId,org))).limit(1);
+    if(member) return c.json({error:'This user is already a member of this company'},409);
+  }
+  const pending=await db.select({id:T.organizationInvitations.id}).from(T.organizationInvitations)
+    .where(and(eq(T.organizationInvitations.organizationId,org),eq(T.organizationInvitations.email,email),eq(T.organizationInvitations.status,'PENDING'))).limit(1);
+  if(pending.length) return c.json({error:'A pending invitation already exists for this email'},409);
+  const raw=crypto.randomUUID()+crypto.randomUUID(), hash=await tokenHash(raw), id=crypto.randomUUID();
+  const expires=new Date(Date.now()+7*86400000).toISOString();
+  await db.batch([
+    db.insert(T.organizationInvitations).values({id,organizationId:org,email,name:b.name,roleId:b.roleId,tokenHash:hash,status:'PENDING',expiresAt:expires,invitedBy:c.get('userId')}),
+    auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'CREATE',entityType:'/api/invitations',entityId:id}),
+  ]);
+  return c.json({id,name:b.name,email,expiresAt:expires,inviteToken:raw},201);
+});
+app.post('/api/invitations/:id/revoke', async (c) => {
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [inv]=await db.select().from(T.organizationInvitations).where(and(eq(T.organizationInvitations.id,id),eq(T.organizationInvitations.organizationId,org))).limit(1);
+  if(!inv || inv.status!=='PENDING') return c.json({error:'Invitation not found or no longer pending'},404);
+  await db.update(T.organizationInvitations).set({status:'REVOKED'}).where(eq(T.organizationInvitations.id,id));
+  return c.json({ok:true});
+});
+
+app.post('/api/invitations/accept', async (c) => {
+  const b=parse(z.object({token:z.string().min(20),password:z.string().min(8).max(128)}),await c.req.json());
+  const db=drizzle(c.env.DB), hash=await tokenHash(b.token);
+  const [inv]=await db.select().from(T.organizationInvitations).where(and(eq(T.organizationInvitations.tokenHash,hash),eq(T.organizationInvitations.status,'PENDING'))).limit(1);
+  if(!inv || new Date(inv.expiresAt).getTime()<Date.now()) return c.json({error:'Invitation is invalid or expired'},400);
+  let userId:string;
+  const [existing]=await db.select().from(T.users).where(eq(T.users.email,inv.email)).limit(1);
+  if(existing) userId=existing.id;
+  else { userId=crypto.randomUUID(); await db.insert(T.users).values({id:userId,name:inv.name,email:inv.email,passwordHash:await hashPw(b.password)}); }
+  const [already]=await db.select({id:T.memberships.id}).from(T.memberships).where(and(eq(T.memberships.userId,userId),eq(T.memberships.organizationId,inv.organizationId))).limit(1);
+  if(already.length) return c.json({error:'User is already a member'},409);
+  await db.batch([
+    db.insert(T.memberships).values({id:crypto.randomUUID(),userId,organizationId:inv.organizationId,role:'STAFF',roleId:inv.roleId,status:'ACTIVE'}),
+    db.update(T.organizationInvitations).set({status:'ACCEPTED'}).where(eq(T.organizationInvitations.id,inv.id)),
+  ]);
+  const organizations=await orgsOf(db,userId);
+  return c.json({token:await issue(c,userId,inv.organizationId),user:{id:userId,name:inv.name,email:inv.email},organizations});
+});
+
 app.get('/api/members', async (c) => {
   const org=c.get('orgId') as string, db=c.get('db');
   const rows=await db.select({id:T.memberships.id,userId:T.users.id,name:T.users.name,email:T.users.email,role:T.memberships.role,roleId:T.memberships.roleId,status:T.memberships.status,roleName:T.roles.name})
