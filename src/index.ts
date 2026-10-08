@@ -57,7 +57,7 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 });
 
 // ---------- authenticated (no org needed) ----------
-app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() : auth(c, next)));
+app.use('/api/*', async (c, next) => ((c.req.path === '/api/auth/login' || c.req.path === '/api/invitations/accept') ? next() : auth(c, next)));
 const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit', 'roles', 'members'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
@@ -227,8 +227,7 @@ app.use('/api/roles', ownerOnly);
 app.use('/api/roles/*', ownerOnly);
 app.use('/api/members', ownerOnly);
 app.use('/api/members/*', ownerOnly);
-app.use('/api/invitations', ownerOnly);
-app.use('/api/invitations/*', ownerOnly);
+app.use('/api/invitations/:id', ownerOnly);
 app.get('/api/audit', async (c) => {
   const org = c.get('orgId');
   if (!org) return c.json({ error: 'Select a company first' }, 403);
