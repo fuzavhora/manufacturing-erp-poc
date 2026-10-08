@@ -6,15 +6,29 @@ const id = () => crypto.randomUUID();
 export async function seed(d1: D1Database) {
   const db = drizzle(d1);
   for (const t of [T.stockLedger, T.bomLines, T.boms, T.productVehicleApplications, T.items, T.vehicleVariants, T.vehicleModels,
-    T.vehicleMakes, T.units, T.itemCategories, T.memberships, T.organizations, T.users]) await db.delete(t);
+    T.vehicleMakes, T.units, T.itemCategories, T.rolePermissions, T.roles, T.memberships, T.organizations, T.users]) await db.delete(t);
 
   const pw = await hashPw('Demo@123');
   const [owner, staff, car, amin] = [id(), id(), id(), id()];
   await db.insert(T.users).values([{ id: owner, name: 'Owner', email: 'owner@demo.com', passwordHash: pw },
     { id: staff, name: 'Staff', email: 'staff@demo.com', passwordHash: pw }]);
   await db.insert(T.organizations).values([{ id: car, name: 'Carstuff', code: 'CARSTUFF' }, { id: amin, name: 'Amin Enterprise', code: 'AMIN' }]);
-  const m = (userId: string, organizationId: string, role: string) => ({ userId, organizationId, role, status: 'ACTIVE' });
-  await db.insert(T.memberships).values([m(owner, car, 'OWNER'), m(owner, amin, 'OWNER'), m(staff, car, 'STAFF')]);
+  const [carStaffRole, aminStaffRole] = [id(), id()];
+  await db.insert(T.roles).values([
+    { id: carStaffRole, organizationId: car, name: 'Staff', description: 'Default operational staff role', isSystem: true },
+    { id: aminStaffRole, organizationId: amin, name: 'Staff', description: 'Default operational staff role', isSystem: true },
+  ]);
+  const staffPerms = await db.select({ id: T.permissions.id, key: T.permissions.key }).from(T.permissions);
+  const allowed = staffPerms.filter((p:any) => ['dashboard.read','categories.read','units.read','vehicles.read','items.read','applications.read','boms.read','stock.read','production.read','production.create'].includes(p.key));
+  await db.insert(T.rolePermissions).values([
+    ...allowed.map((p:any) => ({ roleId: carStaffRole, permissionId: p.id })),
+    ...allowed.map((p:any) => ({ roleId: aminStaffRole, permissionId: p.id })),
+  ]);
+  await db.insert(T.memberships).values([
+    { userId: owner, organizationId: car, role: 'OWNER', roleId: null, status: 'ACTIVE' },
+    { userId: owner, organizationId: amin, role: 'OWNER', roleId: null, status: 'ACTIVE' },
+    { userId: staff, organizationId: car, role: 'Staff', roleId: carStaffRole, status: 'ACTIVE' }
+  ]);
 
   // ---- Carstuff ----
   const [cMat, cRaw, cAcc] = [id(), id(), id()];
