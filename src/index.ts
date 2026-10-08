@@ -53,7 +53,7 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 
 // ---------- authenticated (no org needed) ----------
 app.use('/api/*', async (c, next) => (['/api/auth/login','/api/invitations/accept'].includes(c.req.path) ? next() : auth(c, next)));
-const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit', 'roles', 'members'];
+const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit', 'roles', 'members', 'organization'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
 // Every business module is protected by an action-level permission.
@@ -244,8 +244,9 @@ app.patch('/api/members/:id/role', async (c) => {
 });
 
 app.use('/api/organization', ownerOnly);
-app.use('/api/invitations', ownerOnly);
-app.use('/api/invitations/:id/revoke', ownerOnly);
+const ownerTenantManagement = async (c:any, next:any) => c.req.path === '/api/invitations/accept' ? next() : tenant(c, async () => ownerOnly(c, next));
+app.use('/api/invitations', ownerTenantManagement);
+app.use('/api/invitations/:id/revoke', ownerTenantManagement);
 app.use('/api/roles', ownerOnly);
 app.use('/api/roles/*', ownerOnly);
 app.use('/api/members', ownerOnly);
