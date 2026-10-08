@@ -16,6 +16,15 @@ import { auditStatement } from './services/audit';
 const app = new Hono<Ctx>();
 const parse = <S extends z.ZodTypeAny>(s: S, d: unknown): z.infer<S> => s.parse(d);
 const TOKEN_TTL = 60 * 60; // 1 hour
+
+const ensureOwner = async (c:any) => {
+  const org=c.get('orgId') as string, db=c.get('db');
+  if(!org)return false;
+  const [m]=await db.select({role:T.memberships.role}).from(T.memberships)
+    .where(and(eq(T.memberships.userId,c.get('userId')),eq(T.memberships.organizationId,org),eq(T.memberships.status,'ACTIVE'))).limit(1);
+  return m?.role === 'OWNER';
+};
+
 const hashToken = async (token: string) => {
   const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -106,10 +115,12 @@ app.get('/api/permissions', async (c) => {
   return c.json(rows);
 });
 app.get('/api/roles', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org = c.get('orgId') as string;
   return c.json(await c.get('db').select().from(T.roles).where(eq(T.roles.organizationId, org)));
 });
 app.get('/api/roles/:id', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org = c.get('orgId') as string;
   const [role] = await c.get('db').select().from(T.roles).where(and(eq(T.roles.id,c.req.param('id')),eq(T.roles.organizationId,org))).limit(1);
   if (!role) return c.json({error:'Not found'},404);
@@ -118,6 +129,7 @@ app.get('/api/roles/:id', async (c) => {
   return c.json({...role, permissions: permissions.map((p:any)=>p.key)});
 });
 app.post('/api/roles', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b = parse(z.object({name:z.string().trim().min(2).max(80),description:z.string().trim().max(200).optional(),permissionKeys:z.array(z.string()).default([])}), await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=crypto.randomUUID();
   const perms=await db.select({id:T.permissions.id,key:T.permissions.key}).from(T.permissions);
@@ -130,6 +142,7 @@ app.post('/api/roles', async (c) => {
   return c.json(await db.select().from(T.roles).where(eq(T.roles.id,id)).limit(1).then((r:any)=>r[0]),201);
 });
 app.patch('/api/roles/:id', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b=parse(z.object({name:z.string().trim().min(2).max(80).optional(),description:z.string().trim().max(200).nullable().optional()}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
@@ -138,6 +151,7 @@ app.patch('/api/roles/:id', async (c) => {
   return c.json(await db.select().from(T.roles).where(eq(T.roles.id,id)).limit(1).then((r:any)=>r[0]));
 });
 app.put('/api/roles/:id/permissions', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b=parse(z.object({permissionKeys:z.array(z.string())}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
@@ -148,6 +162,7 @@ app.put('/api/roles/:id/permissions', async (c) => {
   return c.json({ok:true,permissions:selected.map((p:any)=>p.key)});
 });
 app.delete('/api/roles/:id', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
   if(!role) return c.json({error:'Not found'},404);
@@ -158,11 +173,13 @@ app.delete('/api/roles/:id', async (c) => {
   return c.json({ok:true});
 });
 app.get('/api/invitations', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org=c.get('orgId') as string, db=c.get('db');
   return c.json(await db.select({id:T.invitations.id,email:T.invitations.email,status:T.invitations.status,expiresAt:T.invitations.expiresAt,roleId:T.invitations.roleId,roleName:T.roles.name,createdAt:T.invitations.createdAt})
     .from(T.invitations).innerJoin(T.roles,eq(T.invitations.roleId,T.roles.id)).where(eq(T.invitations.organizationId,org)).orderBy(desc(T.invitations.createdAt)));
 });
 app.post('/api/invitations', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b=parse(z.object({email:z.string().email(),roleId:z.string()}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), email=b.email.toLowerCase();
   const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,b.roleId),eq(T.roles.organizationId,org))).limit(1);
@@ -177,6 +194,7 @@ app.post('/api/invitations', async (c) => {
   return c.json({id,email,roleId:role.id,roleName:role.name,expiresAt,token},201);
 });
 app.delete('/api/invitations/:id', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [i]=await db.select().from(T.invitations).where(and(eq(T.invitations.id,id),eq(T.invitations.organizationId,org),eq(T.invitations.status,'PENDING'))).limit(1);
   if(!i) return c.json({error:'Invitation not found'},404);
@@ -196,6 +214,7 @@ app.post('/api/invitations/accept', async (c) => {
   return c.json({ok:true,organizationId:i.organizationId,email:i.email});
 });
 app.get('/api/members', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const org=c.get('orgId') as string, db=c.get('db');
   const rows=await db.select({id:T.memberships.id,userId:T.users.id,name:T.users.name,email:T.users.email,role:T.memberships.role,roleId:T.memberships.roleId,status:T.memberships.status,roleName:T.roles.name})
     .from(T.memberships).innerJoin(T.users,eq(T.memberships.userId,T.users.id)).leftJoin(T.roles,eq(T.memberships.roleId,T.roles.id))
@@ -203,6 +222,7 @@ app.get('/api/members', async (c) => {
   return c.json(rows);
 });
 app.patch('/api/members/:id/status', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b=parse(z.object({status:z.enum(['ACTIVE','SUSPENDED'])}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [m]=await db.select().from(T.memberships).where(and(eq(T.memberships.id,id),eq(T.memberships.organizationId,org))).limit(1);
@@ -213,6 +233,7 @@ app.patch('/api/members/:id/status', async (c) => {
   return c.json({ok:true,status:b.status});
 });
 app.patch('/api/members/:id/role', async (c) => {
+  if (!(await ensureOwner(c))) return c.json({error:'Owner access required'},403);
   const b=parse(z.object({roleId:z.string().nullable()}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
   const [m]=await db.select().from(T.memberships).where(and(eq(T.memberships.id,id),eq(T.memberships.organizationId,org))).limit(1);
