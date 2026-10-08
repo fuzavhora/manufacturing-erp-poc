@@ -18,8 +18,7 @@ export async function seed(d1: D1Database) {
     { id: carStaffRole, organizationId: car, name: 'Staff', description: 'Default operational staff role', isSystem: true },
     { id: aminStaffRole, organizationId: amin, name: 'Staff', description: 'Default operational staff role', isSystem: true },
   ]);
-  const staffPerms = await db.select({ id: T.permissions.id }).from(T.permissions)
-    .where((p:any) => p); // permissions are static and loaded by migration
+  const staffPerms = await db.select({ id: T.permissions.id, key: T.permissions.key }).from(T.permissions);
   const allowed = staffPerms.filter((p:any) => ['dashboard.read','categories.read','units.read','vehicles.read','items.read','applications.read','boms.read','stock.read','production.read','production.create'].includes(p.key));
   await db.batch(allowed.map((p:any) => db.insert(T.rolePermissions).values({ roleId: carStaffRole, permissionId: p.id })));
   await db.batch(allowed.map((p:any) => db.insert(T.rolePermissions).values({ roleId: aminStaffRole, permissionId: p.id })));
