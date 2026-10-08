@@ -81,6 +81,13 @@ for (const [path, module] of PERMISSION_PATHS) {
 }
 
 
+// Management APIs require an authenticated owner membership in the selected company.
+app.use('/api/roles', tenant, ownerOnly);
+app.use('/api/roles/*', tenant, ownerOnly);
+app.use('/api/members', tenant, ownerOnly);
+app.use('/api/members/*', tenant, ownerOnly);
+app.use('/api/invitations', tenant, ownerOnly);
+app.use('/api/invitations/:id', tenant, ownerOnly);
 app.get('/api/auth/me', async (c) => {
   const db = c.get('db'), orgId = c.get('orgId');
   const [user] = await db.select({ id: T.users.id, name: T.users.name, email: T.users.email }).from(T.users).where(eq(T.users.id, c.get('userId')));
@@ -223,11 +230,6 @@ app.patch('/api/members/:id/role', async (c) => {
   return c.json({ok:true});
 });
 
-app.use('/api/roles', ownerOnly);
-app.use('/api/roles/*', ownerOnly);
-app.use('/api/members', ownerOnly);
-app.use('/api/members/*', ownerOnly);
-app.use('/api/invitations/:id', ownerOnly);
 app.get('/api/audit', async (c) => {
   const org = c.get('orgId');
   if (!org) return c.json({ error: 'Select a company first' }, 403);
