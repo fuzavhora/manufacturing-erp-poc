@@ -255,25 +255,142 @@ function Company() {
 
 function Roles({ me }: R) {
   const [roles,setRoles]=useState<R[]>([]), [selected,setSelected]=useState<R|null>(null), [catalog,setCatalog]=useState<R[]>([]);
-  const [members,setMembers]=useState<R[]>([]), [name,setName]=useState(''), [description,setDescription]=useState(''), [keys,setKeys]=useState<string[]>([]);
-  const [err,setErr]=useState(''), [busy,setBusy]=useState(false);
-  const load=async()=>{ try{ const [rs,ps,ms]=await Promise.all([api('/roles'),api('/permissions'),api('/members')]); setRoles(rs);setCatalog(ps);setMembers(ms); }catch(e:any){setErr(e.message)} };
+  const [members,setMembers]=useState<R[]>([]);
+  const [name,setName]=useState(''), [description,setDescription]=useState(''), [keys,setKeys]=useState<string[]>([]);
+  const [err,setErr]=useState(''), [busy,setBusy]=useState(false), [editing,setEditing]=useState(false);
+
+  const ACTIONS = ['read','create','edit','delete'];
+  const load=async()=>{try{
+    const [rs,ps,ms]=await Promise.all([api('/roles'),api('/permissions'),api('/members')]);
+    setRoles(rs); setCatalog(ps); setMembers(ms);
+    if (!selected && rs.length) {
+      const r=rs[0]; const detail=await api('/roles/'+r.id);
+      setSelected(detail); setName(detail.name); setDescription(detail.description||''); setKeys(detail.permissions||[]);
+    }
+  }catch(e:any){setErr(e.message)}};
+
   useEffect(()=>{load()},[]);
-  const select=async(id:string)=>{try{const r=await api('/roles/'+id);setSelected(r);setName(r.name);setDescription(r.description||'');setKeys(r.permissions||[])}catch(e:any){setErr(e.message)}};
-  const toggle=(k:string)=>setKeys(keys.includes(k)?keys.filter(x=>x!==k):[...keys,k]);
-  const save=async()=>{try{setBusy(true);setErr('');let r=selected;if(!r){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}});setSelected(r)}else{await api('/roles/'+r.id,{method:'PATCH',body:{name,description}});await api('/roles/'+r.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}})}setName('');setDescription('');setSelected(null);setKeys([]);await load()}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
-  const remove=async()=>{if(!selected)return;try{await api('/roles/'+selected.id,{method:'DELETE'});setSelected(null);await load()}catch(e:any){setErr(e.message)}};
-  const grouped=catalog.reduce((a:any,p:any)=>((a[p.module]??=[]).push(p),a),{});
-  return <div className="stack"><section className="data-card"><div className="card-heading"><div><h2>Roles & permissions</h2><p>Create company-specific roles and control access module by module.</p></div></div>
-    <div className="form-grid"><label>Role name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Production Manager"/></label><label>Description<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="What can this role do?"/></label></div>
-    <div className="role-permissions">{Object.entries(grouped).map(([module,ps]:any)=><div className="permission-row" key={module}><strong>{pretty(module)}</strong><div>{ps.map((p:any)=><label key={p.key}><input type="checkbox" checked={keys.includes(p.key)} onChange={()=>toggle(p.key)}/>{pretty(p.action)}</label>)}</div></div>)}</div>
-    <div className="form-footer"><button className="primary" onClick={save} disabled={busy||name.trim().length<2}>{busy?'Saving…':selected?'Save changes':'Create role'}</button>{selected&&!selected.isSystem&&<button className="secondary danger" onClick={remove}>Delete role</button>}</div>
-    {err&&<div className="alert error">{err}</div>}</section>
-    <section className="data-card"><div className="card-heading"><div><h2>Company roles</h2><p>System roles are protected; custom roles can be edited.</p></div></div>
-      <div className="role-list">{roles.map(r=><button className="role-card" key={r.id} onClick={()=>select(r.id)}><span><strong>{r.name}</strong><small>{r.description||'No description'}</small></span><b>{r.isSystem?'System':'Custom'} ›</b></button>)}</div></section>
-    <section className="data-card"><div className="card-heading"><div><h2>Member access</h2><p>Assign a role to each staff member in this company.</p></div></div>
-      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.email}</td><td>{m.role==='OWNER'?<span className="status-chip">OWNER</span>:<select value={m.roleId||''} onChange={async e=>{await api('/members/'+m.id+'/role',{method:'PATCH',body:{roleId:e.target.value||null}});load()}}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td></tr>)}</tbody></table></div>
-    </section></div>;
+
+  const select=async(id:string)=>{
+    try{
+      setErr(''); const r=await api('/roles/'+id);
+      setSelected(r); setName(r.name); setDescription(r.description||''); setKeys(r.permissions||[]); setEditing(false);
+    }catch(e:any){setErr(e.message)}
+  };
+
+  const beginNew=()=>{setSelected(null);setName('');setDescription('');setKeys([]);setEditing(true);setErr('')};
+  const toggle=(k:string)=>setKeys(prev=>prev.includes(k)?prev.filter(x=>x!==k):[...prev,k]);
+  const moduleKeys=(module:string)=>catalog.filter(p=>p.module===module).map(p=>p.key);
+  const moduleChecked=(module:string,action:string)=>keys.includes(module+'.'+action);
+  const toggleModule=(module:string,action:string)=>{
+    const key=module+'.'+action;
+    const exists=keys.includes(key);
+    setKeys(prev=>exists?prev.filter(x=>x!==key):[...prev,key]);
+  };
+  const toggleModuleAll=(module:string)=>{
+    const ks=moduleKeys(module), all=ks.every(k=>keys.includes(k));
+    setKeys(prev=>all?prev.filter(k=>!ks.includes(k)):Array.from(new Set([...prev,...ks])));
+  };
+  const allKeys=catalog.map(p=>p.key);
+  const allSelected=allKeys.length>0 && allKeys.every(k=>keys.includes(k));
+
+  const save=async()=>{
+    try{
+      setBusy(true);setErr('');
+      if(!name.trim()){setErr('Enter a role name.');return}
+      let r=selected;
+      if(!r){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}})}
+      else {
+        await api('/roles/'+r.id,{method:'PATCH',body:{name,description}});
+        await api('/roles/'+r.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}});
+        r=await api('/roles/'+r.id);
+      }
+      setSelected(r);setName(r.name);setDescription(r.description||'');setKeys(r.permissions||[]);
+      setEditing(false);await load();
+    }catch(e:any){setErr(e.message)}finally{setBusy(false)}
+  };
+
+  const remove=async()=>{
+    if(!selected)return;
+    if(!window.confirm('Delete this custom role?'))return;
+    try{setBusy(true);await api('/roles/'+selected.id,{method:'DELETE'});setSelected(null);setEditing(false);await load()}catch(e:any){setErr(e.message)}finally{setBusy(false)}
+  };
+
+  const grouped=catalog.reduce((a:any,p:any)=>{(a[p.module]??=[]).push(p);return a},{});
+  const memberCount=selected ? members.filter(m=>m.roleId===selected.id).length : 0;
+
+  return <div className="roles-page">
+    <section className="roles-header">
+      <div>
+        <div className="eyebrow">ACCESS CONTROL</div>
+        <h1>Roles & permissions</h1>
+        <p>Create job-based roles and control exactly what each team member can do.</p>
+      </div>
+      <button className="primary" onClick={beginNew}>＋ New role</button>
+    </section>
+
+    {err&&<div className="alert error roles-alert">{err}</div>}
+
+    <section className="roles-layout">
+      <aside className="roles-list-panel">
+        <div className="roles-panel-head"><div><strong>Company roles</strong><small>{roles.length} roles</small></div></div>
+        <div className="roles-list">
+          {roles.map(r=><button key={r.id} className={'role-list-item '+(selected?.id===r.id?'active':'')} onClick={()=>select(r.id)}>
+            <span className="role-avatar">{r.name.slice(0,1).toUpperCase()}</span>
+            <span className="role-list-copy"><strong>{r.name}</strong><small>{r.isSystem?'System role':(members.filter(m=>m.roleId===r.id).length+' members')}</small></span>
+            <span className="role-chevron">›</span>
+          </button>)}
+          {!roles.length&&<div className="roles-empty">No roles yet.</div>}
+        </div>
+      </aside>
+
+      <div className="role-detail">
+        {editing ? <section className="role-editor-card">
+          <div className="role-editor-head"><div><div className="eyebrow">{selected?'EDIT ROLE':'NEW ROLE'}</div><h2>{selected?selected.name:'Create a custom role'}</h2><p>Give the role a clear job responsibility, then select its allowed actions below.</p></div><button className="secondary" onClick={()=>setEditing(false)}>Cancel</button></div>
+          <div className="role-meta-form"><label>Role name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Production Manager"/></label><label>Description<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="Short description"/></label></div>
+          <PermissionMatrix catalog={catalog} keys={keys} onToggle={toggleModule} onToggleAll={toggleModuleAll} allSelected={allSelected}/>
+          <div className="role-editor-footer"><span>{keys.length} permission{keys.length===1?'':'s'} selected</span><div><button className="secondary" onClick={()=>setEditing(false)}>Cancel</button><button className="primary" onClick={save} disabled={busy||name.trim().length<2}>{busy?'Saving…':selected?'Save role':'Create role'}</button></div></div>
+        </section> : selected ? <section className="role-detail-card">
+          <div className="role-detail-head">
+            <div className="role-title-wrap"><span className="role-big-avatar">{selected.name.slice(0,1).toUpperCase()}</span><div><div className="eyebrow">{selected.isSystem?'SYSTEM ROLE':'CUSTOM ROLE'}</div><h2>{selected.name}</h2><p>{selected.description||'No description provided.'}</p></div></div>
+            <div className="role-head-actions">{!selected.isSystem&&<><button className="secondary" onClick={()=>setEditing(true)}>Edit role</button><button className="secondary danger" onClick={remove}>Delete</button></>}</div>
+          </div>
+          <div className="role-stats"><div><strong>{keys.length}</strong><span>Permissions</span></div><div><strong>{memberCount}</strong><span>Assigned members</span></div><div><strong>{Object.keys(grouped).filter(m=>keys.some(k=>k.startsWith(m+'.'))).length}</strong><span>Modules enabled</span></div></div>
+          <div className="permission-section-head"><div><h3>Permission matrix</h3><p>Read is the minimum access. Create, edit and delete are granted independently.</p></div></div>
+          <PermissionMatrix catalog={catalog} keys={keys} readOnly />
+        </section> : <section className="role-detail-card empty-role"><div className="empty-role-icon">♙</div><h2>Select a role</h2><p>Choose a role from the left or create a new one.</p><button className="primary" onClick={beginNew}>Create first role</button></section>}
+      </div>
+    </section>
+  </div>;
+}
+
+function PermissionMatrix({catalog,keys,onToggle,onToggleAll,allSelected,readOnly=false}: {catalog:R[];keys:string[];onToggle?:(m:string,a:string)=>void;onToggleAll?:(m:string)=>void;allSelected?:boolean;readOnly?:boolean}) {
+  const grouped=catalog.reduce((a:any,p:any)=>{(a[p.module]??=[]).push(p);return a},{});
+  const modules=Object.keys(grouped);
+  const actionLabel=(a:string)=>({read:'Read',create:'Create',edit:'Edit',delete:'Delete'} as any)[a]||pretty(a);
+  return <div className="permission-matrix-wrap">
+    <div className="permission-toolbar"><span>Module access</span><div className="permission-toolbar-actions"><span>Read</span><span>Create</span><span>Edit</span><span>Delete</span></div></div>
+    <div className="permission-matrix">
+      {modules.map(module=>{
+        const available=grouped[module].map((p:R)=>p.action);
+        const moduleKeys=grouped[module].map((p:R)=>p.key);
+        const checkedCount=moduleKeys.filter((k:string)=>keys.includes(k)).length;
+        return <div className="permission-matrix-row" key={module}>
+          <div className="permission-module"><strong>{pretty(module)}</strong><small>{checkedCount}/{moduleKeys.length} enabled</small></div>
+          <div className="permission-actions">
+            {ACTIONS.map(action=>{
+              const exists=available.includes(action), key=module+'.'+action, checked=keys.includes(key);
+              return <button type="button" key={action} className={'permission-check '+(checked?'checked':'')+(exists?'':' disabled')} disabled={readOnly||!exists} onClick={()=>onToggle?.(module,action)} aria-label={module+' '+action} title={exists?actionLabel(action):'Not available'}>
+                <span>{checked?'✓':''}</span>
+              </button>
+            })}
+            {!readOnly&&<button type="button" className="module-all" onClick={()=>onToggleAll?.(module)}>{checkedCount===moduleKeys.length?'Clear':'All'}</button>}
+          </div>
+        </div>
+      })}
+    </div>
+    {!readOnly&&<div className="permission-matrix-note"><button type="button" className="check-all-link" onClick={()=>onToggleAll?.('__ALL__')}>{allSelected?'Clear all permissions':'Select all permissions'}</button><span>Permissions are enforced by the API, not only the UI.</span></div>}
+  </div>;
 }
 
 function Dashboard({ org, D, onNavigate, isOwner }: R) {
