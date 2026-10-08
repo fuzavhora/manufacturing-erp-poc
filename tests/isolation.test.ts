@@ -157,3 +157,27 @@ describe('dynamic RBAC', () => {
     expect((await call('/api/members/' + member.id + '/role', car, 'PATCH', {roleId: staffRole.id})).status).toBe(200);
   });
 });
+
+
+describe('company and user management', () => {
+  it('19 owner can invite a new employee with a custom role', async () => {
+    const roles=(await call('/api/roles',car)).json;
+    const role=roles.find((r:any)=>r.name!=='OWNER');
+    const email='invite-'+rnd().toLowerCase()+'@example.com';
+    const r=await call('/api/invitations',car,'POST',{email,roleId:role.id});
+    expect(r.status).toBe(201); expect(r.json.token).toBeTruthy(); expect(r.json.roleName).toBe(role.name);
+    expect((await call('/api/invitations',car)).json.some((i:any)=>i.email===email&&i.status==='PENDING')).toBe(true);
+  });
+  it('20 staff cannot manage members or invitations', async () => {
+    const staff=await into('staff@demo.com','Carstuff');
+    expect((await call('/api/members',staff.token)).status).toBe(403);
+    expect((await call('/api/invitations',staff.token)).status).toBe(403);
+  });
+  it('21 owner can suspend and reactivate a staff member', async () => {
+    const members=(await call('/api/members',car)).json;
+    const m=members.find((x:any)=>x.email==='staff@demo.com');
+    expect((await call('/api/members/'+m.id+'/status',car,'PATCH',{status:'SUSPENDED'})).status).toBe(200);
+    expect((await call('/api/items', (await into('staff@demo.com','Carstuff')).token)).status).toBe(403);
+    expect((await call('/api/members/'+m.id+'/status',car,'PATCH',{status:'ACTIVE'})).status).toBe(200);
+  });
+});
