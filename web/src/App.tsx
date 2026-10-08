@@ -288,7 +288,11 @@ function Roles({ me }: R) {
     setKeys(prev=>exists?prev.filter(x=>x!==key):[...prev,key]);
   };
   const toggleModuleAll=(module:string)=>{
-    const ks=moduleKeys(module), all=ks.every(k=>keys.includes(k));
+    if(module==='__ALL__'){
+      setKeys(prev=>allKeys.length && allKeys.every(k=>prev.includes(k)) ? [] : allKeys);
+      return;
+    }
+    const ks=moduleKeys(module), all=ks.length>0 && ks.every(k=>keys.includes(k));
     setKeys(prev=>all?prev.filter(k=>!ks.includes(k)):Array.from(new Set([...prev,...ks])));
   };
   const allKeys=catalog.map(p=>p.key);
