@@ -222,12 +222,43 @@ app.post('/api/production', async (c) => {
 });
 const LOW_STOCK = 20; // PoC threshold
 app.get('/api/dashboard', async (c) => {
-  const org = c.get('orgId')!, rows = await stockRows(c.get('db'), org);
-  const entries = await c.get('db').select({ id: T.stockLedger.id }).from(T.stockLedger).where(eq(T.stockLedger.organizationId, org));
-  const [o] = await c.get('db').select().from(T.organizations).where(eq(T.organizations.id, org));
-  return c.json({ company: o.name, totalItems: rows.length, rawMaterials: rows.filter((r: any) => r.itemType === 'RAW_MATERIAL').length,
+  const org = c.get('orgId')!, db = c.get('db');
+  const rows = await stockRows(db, org);
+  const entries = await db.select().from(T.stockLedger).where(eq(T.stockLedger.organizationId, org));
+  const [o] = await db.select().from(T.organizations).where(eq(T.organizations.id, org));
+
+  const monthKey = (value: string) => {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 7);
+  };
+  const monthLabel = (key: string) => {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-IN', { month: 'short' });
+  };
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - i), 1));
+    return d.toISOString().slice(0, 7);
+  });
+  const movement = months.map((key) => {
+    const e = entries.filter((x: any) => monthKey(x.createdAt) === key);
+    return { month: monthLabel(key), stockIn: e.reduce((n: number, x: any) => n + Number(x.qtyIn || 0), 0),
+      stockOut: e.reduce((n: number, x: any) => n + Number(x.qtyOut || 0), 0),
+      production: e.filter((x: any) => x.refType === 'PRODUCTION' && Number(x.qtyIn || 0) > 0).reduce((n: number, x: any) => n + Number(x.qtyIn || 0), 0) };
+  });
+  const lowStockItems = rows.filter((r: any) => Number(r.current) < LOW_STOCK).sort((a: any, b: any) => Number(a.current) - Number(b.current)).slice(0, 5);
+  const topStock = [...rows].filter((r: any) => Number(r.current) > 0).sort((a: any, b: any) => Number(b.current) - Number(a.current)).slice(0, 5);
+  const productionRuns = new Set(entries.filter((x: any) => x.refType === 'PRODUCTION').map((x: any) => x.refId)).size;
+  const today = new Date().toISOString().slice(0, 10);
+  const todayProduction = entries.filter((x: any) => x.refType === 'PRODUCTION' && String(x.createdAt).slice(0, 10) === today && Number(x.qtyIn || 0) > 0)
+    .reduce((n: number, x: any) => n + Number(x.qtyIn || 0), 0);
+
+  return c.json({
+    company: o.name, totalItems: rows.length, rawMaterials: rows.filter((r: any) => r.itemType === 'RAW_MATERIAL').length,
     finishedGoods: rows.filter((r: any) => r.itemType === 'FINISHED_GOOD').length, lowStock: rows.filter((r: any) => r.current < LOW_STOCK).length,
-    ledgerEntries: entries.length, });
+    ledgerEntries: entries.length, productionRuns, todayProduction, movement, lowStockItems, topStock
+  });
 });
 
 export default app;
