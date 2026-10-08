@@ -83,6 +83,9 @@ function Login({ onDone }: { onDone: () => void }) {
 function Picker({ orgs, onDone }: { orgs: R[]; onDone: () => void }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
 
   const pick = async (id: string) => {
     try {
@@ -93,22 +96,46 @@ function Picker({ orgs, onDone }: { orgs: R[]; onDone: () => void }) {
     finally { setBusy(''); }
   };
 
-  return <div className="picker-page"><div className="picker-card">
+  const create = async () => {
+    if (name.trim().length < 2) { setErr('Enter a company name.'); return; }
+    try {
+      setCreating(true); setErr('');
+      const r = await api('/organizations', {
+        method: 'POST',
+        body: { name: name.trim(), ...(code.trim() ? { code: code.trim() } : {}) },
+      });
+      session.set(r.token);
+      onDone();
+    } catch (e: any) { setErr(e.message); }
+    finally { setCreating(false); }
+  };
+
+  return <div className="picker-page"><div className="picker-card company-picker-card">
     <div className="brand-mark small">SC</div>
-    <div className="eyebrow">COMPANY ACCESS</div>
-    <h1>Select a company</h1>
-    <p className="muted">Choose the workspace you want to work in.</p>
-    <div className="org-list">{orgs.map((o) =>
-      <button className="org-option" key={o.id} onClick={() => pick(o.id)} disabled={!!busy}>
+    <div className="eyebrow">YOUR COMPANIES</div>
+    <h1>{orgs.length ? 'Select a company' : 'Create your first company'}</h1>
+    <p className="muted">{orgs.length ? 'Switch between companies without signing out.' : 'Set up your first company to start using the ERP.'}</p>
+
+    {orgs.length > 0 && <div className="org-list">{orgs.map((o) =>
+      <button className="org-option" key={o.id} onClick={() => pick(o.id)} disabled={!!busy || creating}>
         <span className="org-icon">{o.name?.slice(0, 1)?.toUpperCase() || 'C'}</span>
         <span className="org-copy"><strong>{o.name}</strong><small>{busy === o.id ? 'Opening…' : o.role}</small></span>
         <span className="chevron">›</span>
       </button>
-    )}</div>
+    )}</div>}
+
+    {!creating ? <button className="add-company-button" onClick={() => { setCreating(true); setErr(''); }}>
+      <span>＋</span><span><strong>Add another company</strong><small>Create a separate workspace under this account</small></span><b>›</b>
+    </button> : <div className="company-create-panel">
+      <div className="create-panel-head"><div><strong>New company</strong><small>This creates a new isolated workspace.</small></div><button className="icon-button" onClick={() => { setCreating(false); setErr(''); }}>×</button></div>
+      <label>Company name<em>*</em><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Carstuff" autoFocus /></label>
+      <label>Company code <span className="optional-label">optional</span><input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. CARSTUFF" /></label>
+      <button className="primary wide" onClick={create} disabled={creating}>{creating ? 'Creating…' : 'Create company'}</button>
+    </div>}
+
     {err && <div className="alert error">{err}</div>}
   </div></div>;
 }
-
 function Shell({ me, org, onSwitch, onLogout }: R) {
   const [tab, setTab] = useState('Dashboard');
   const [openMobileNav, setOpenMobileNav] = useState(false);
