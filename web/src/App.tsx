@@ -9,16 +9,17 @@ const opts = (rows: R[], f: (r: R) => string = (r) => r.name): [string, string][
   rows.map((r) => [r.id, f(r)]);
 
 const NAV = [
-  { id: 'Dashboard', label: 'Dashboard', icon: '⌂', all: true },
-  { id: 'Categories', label: 'Categories', icon: '▦', owner: true },
-  { id: 'Units', label: 'Units', icon: '◫', owner: true },
-  { id: 'Vehicles', label: 'Vehicles', icon: '▤', owner: true },
-  { id: 'Items', label: 'Items', icon: '□', owner: true },
-  { id: 'Applications', label: 'Applications', icon: '⊞', owner: true },
-  { id: 'BOM', label: 'BOM', icon: '≡', owner: true },
-  { id: 'Stock', label: 'Stock', icon: '◈', all: true },
-  { id: 'Production', label: 'Production', icon: '⚙', all: true },
-  { id: 'Audit', label: 'Audit log', icon: '◷', owner: true },
+  { id: 'Dashboard', label: 'Dashboard', icon: '⌂', perm: 'dashboard.read' },
+  { id: 'Categories', label: 'Categories', icon: '▦', perm: 'categories.read' },
+  { id: 'Units', label: 'Units', icon: '◫', perm: 'units.read' },
+  { id: 'Vehicles', label: 'Vehicles', icon: '▤', perm: 'vehicles.read' },
+  { id: 'Items', label: 'Items', icon: '□', perm: 'items.read' },
+  { id: 'Applications', label: 'Applications', icon: '⊞', perm: 'applications.read' },
+  { id: 'BOM', label: 'BOM', icon: '≡', perm: 'boms.read' },
+  { id: 'Stock', label: 'Stock', icon: '◈', perm: 'stock.read' },
+  { id: 'Production', label: 'Production', icon: '⚙', perm: 'production.read' },
+  { id: 'Audit', label: 'Audit log', icon: '◷', perm: 'audit.read' },
+  { id: 'Roles', label: 'Roles & permissions', icon: '♙', owner: true },
 ];
 
 export default function App() {
@@ -142,20 +143,24 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
   const [D, setD] = useState<R>({});
   const [err, setErr] = useState('');
   const isOwner = org?.role === 'OWNER';
+  const can = (module: string, action = 'read') => isOwner || (me.permissions ?? []).includes(module + '.' + action);
 
   const reload = useCallback(async () => {
     try {
       setErr('');
-      const [cats, units, makes, models, variants, items, apps, boms] = await Promise.all(
-        ['/categories', '/units', '/vehicles/makes', '/vehicles/models', '/vehicles/variants', '/items', '/product-applications', '/boms'].map((p) => api(p))
-      );
+      const req = async (module: string, path: string) => can(module) ? api(path) : Promise.resolve([]);
+      const [cats, units, makes, models, variants, items, apps, boms] = await Promise.all([
+        req('categories','/categories'), req('units','/units'), req('vehicles','/vehicles/makes'),
+        req('vehicles','/vehicles/models'), req('vehicles','/vehicles/variants'), req('items','/items'),
+        req('applications','/product-applications'), req('boms','/boms')
+      ]);
       setD({ cats, units, makes, models, variants, items, apps, boms });
     } catch (e: any) { setErr(e.message); }
-  }, []);
+  }, [me.permissions, isOwner]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  const visibleNav = NAV.filter((n) => n.all || (n.owner && isOwner));
+  const visibleNav = NAV.filter((n) => n.owner ? isOwner : !n.perm || can(n.perm.split('.')[0], n.perm.split('.')[1]));
   const active = NAV.find((n) => n.id === tab)?.label ?? tab;
   const selectTab = (id: string) => { setTab(id); setOpenMobileNav(false); };
 
@@ -192,6 +197,7 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
         {tab === 'Stock' && <Stock />}
         {tab === 'Production' && <Production D={D} appLabel={(a: R) => appLabel(D, a)} />}
         {tab === 'Audit' && <Audit />}
+        {tab === 'Roles' && <Roles me={me} />}
       </main>
       <nav className="mobile-bottom-nav" aria-label="Primary navigation">
         <button className={tab === 'Dashboard' ? 'active' : ''} onClick={() => selectTab('Dashboard')}><span>⌂</span><small>Home</small></button>
@@ -202,6 +208,29 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
       </nav>
     </section>
   </div>;
+}
+
+function Roles({ me }: R) {
+  const [roles,setRoles]=useState<R[]>([]), [selected,setSelected]=useState<R|null>(null), [catalog,setCatalog]=useState<R[]>([]);
+  const [members,setMembers]=useState<R[]>([]), [name,setName]=useState(''), [description,setDescription]=useState(''), [keys,setKeys]=useState<string[]>([]);
+  const [err,setErr]=useState(''), [busy,setBusy]=useState(false);
+  const load=async()=>{ try{ const [rs,ps,ms]=await Promise.all([api('/roles'),api('/permissions'),api('/members')]); setRoles(rs);setCatalog(ps);setMembers(ms); }catch(e:any){setErr(e.message)} };
+  useEffect(()=>{load()},[]);
+  const select=async(id:string)=>{try{const r=await api('/roles/'+id);setSelected(r);setName(r.name);setDescription(r.description||'');setKeys(r.permissions||[])}catch(e:any){setErr(e.message)}};
+  const toggle=(k:string)=>setKeys(keys.includes(k)?keys.filter(x=>x!==k):[...keys,k]);
+  const save=async()=>{try{setBusy(true);setErr('');let r=selected;if(!r){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}});setSelected(r)}else{await api('/roles/'+r.id,{method:'PATCH',body:{name,description}});await api('/roles/'+r.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}})}setName('');setDescription('');setSelected(null);setKeys([]);await load()}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  const remove=async()=>{if(!selected)return;try{await api('/roles/'+selected.id,{method:'DELETE'});setSelected(null);await load()}catch(e:any){setErr(e.message)}};
+  const grouped=catalog.reduce((a:any,p:any)=>((a[p.module]??=[]).push(p),a),{});
+  return <div className="stack"><section className="data-card"><div className="card-heading"><div><h2>Roles & permissions</h2><p>Create company-specific roles and control access module by module.</p></div></div>
+    <div className="form-grid"><label>Role name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Production Manager"/></label><label>Description<input value={description} onChange={e=>setDescription(e.target.value)} placeholder="What can this role do?"/></label></div>
+    <div className="role-permissions">{Object.entries(grouped).map(([module,ps]:any)=><div className="permission-row" key={module}><strong>{pretty(module)}</strong><div>{ps.map((p:any)=><label key={p.key}><input type="checkbox" checked={keys.includes(p.key)} onChange={()=>toggle(p.key)}/>{pretty(p.action)}</label>)}</div></div>)}</div>
+    <div className="form-footer"><button className="primary" onClick={save} disabled={busy||name.trim().length<2}>{busy?'Saving…':selected?'Save changes':'Create role'}</button>{selected&&!selected.isSystem&&<button className="secondary danger" onClick={remove}>Delete role</button>}</div>
+    {err&&<div className="alert error">{err}</div>}</section>
+    <section className="data-card"><div className="card-heading"><div><h2>Company roles</h2><p>System roles are protected; custom roles can be edited.</p></div></div>
+      <div className="role-list">{roles.map(r=><button className="role-card" key={r.id} onClick={()=>select(r.id)}><span><strong>{r.name}</strong><small>{r.description||'No description'}</small></span><b>{r.isSystem?'System':'Custom'} ›</b></button>)}</div></section>
+    <section className="data-card"><div className="card-heading"><div><h2>Member access</h2><p>Assign a role to each staff member in this company.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.email}</td><td>{m.role==='OWNER'?<span className="status-chip">OWNER</span>:<select value={m.roleId||''} onChange={async e=>{await api('/members/'+m.id+'/role',{method:'PATCH',body:{roleId:e.target.value||null}});load()}}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td></tr>)}</tbody></table></div>
+    </section></div>;
 }
 
 function Dashboard({ org, D, onNavigate, isOwner }: R) {
