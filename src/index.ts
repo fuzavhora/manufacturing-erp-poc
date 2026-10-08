@@ -242,6 +242,21 @@ app.patch('/api/members/:id/role', async (c) => {
   }
   return c.json({ok:true});
 });
+app.patch('/api/members/:id/status', async (c) => {
+  const b=parse(z.object({status:z.enum(['ACTIVE','INACTIVE'])}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [m]=await db.select().from(T.memberships)
+    .where(and(eq(T.memberships.id,id),eq(T.memberships.organizationId,org))).limit(1);
+  if(!m) return c.json({error:'Member not found'},404);
+  if(m.role==='OWNER') return c.json({error:'The company owner cannot be deactivated'},422);
+  if(m.status===b.status) return c.json({ok:true});
+  await db.batch([
+    db.update(T.memberships).set({status:b.status}).where(eq(T.memberships.id,id)),
+    auditStatement(db,{organizationId:org,userId:c.get('userId'),action:b.status==='ACTIVE'?'ACTIVATE':'DEACTIVATE',entityType:'/api/members',entityId:id}),
+  ]);
+  return c.json({ok:true,status:b.status});
+});
+
 
 app.use('/api/organization', ownerOnly);
 const ownerTenantManagement = async (c:any, next:any): Promise<any> => {
