@@ -246,7 +246,7 @@ app.patch('/api/members/:id/role', async (c) => {
 app.use('/api/organization', ownerOnly);
 const ownerTenantManagement = async (c:any, next:any): Promise<any> => {
   if (c.req.path === '/api/invitations/accept') return next();
-  return tenant(c, async () => ownerOnly(c, next));
+  return tenant(c, async () => { await ownerOnly(c, next); });
 };
 app.use('/api/invitations', ownerTenantManagement);
 app.use('/api/invitations/:id/revoke', ownerTenantManagement);
