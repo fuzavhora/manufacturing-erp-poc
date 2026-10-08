@@ -129,3 +129,31 @@ describe('multi-company creation', () => {
     expect(orgs.json.some((o: any) => o.id === created.json.organization.id && o.name === name)).toBe(true);
   });
 });
+
+
+describe('dynamic RBAC', () => {
+  it('17 staff cannot create a company', async () => {
+    const staff = await into('staff@demo.com', 'Carstuff');
+    const r = await call('/api/organizations', staff.token, 'POST', { name: 'Blocked ' + rnd() });
+    expect(r.status).toBe(403);
+  });
+  it('18 owner can create a custom role and enforce its permissions', async () => {
+    const roleName = 'Production Only ' + rnd();
+    const created = await call('/api/roles', car, 'POST', { name: roleName, permissionKeys: ['dashboard.read','production.read','production.create'] });
+    expect(created.status).toBe(201);
+    const detail = await call('/api/roles/' + created.json.id, car);
+    expect(detail.status).toBe(200);
+    expect(detail.json.permissions).toContain('production.create');
+    const staff = await into('staff@demo.com', 'Carstuff');
+    const members = await call('/api/members', car);
+    const member = members.json.find((m:any)=>m.email==='staff@demo.com');
+    expect(member).toBeTruthy();
+    expect((await call('/api/members/' + member.id + '/role', car, 'PATCH', {roleId: created.json.id})).status).toBe(200);
+    const switched = await into('staff@demo.com', 'Carstuff');
+    expect((await call('/api/stock', switched.token)).status).toBe(403);
+    expect((await call('/api/production', switched.token, 'POST', {})).status).toBe(422);
+    const staffRole = (await call('/api/roles', car)).json.find((r:any)=>r.name==='Staff');
+    expect(staffRole).toBeTruthy();
+    expect((await call('/api/members/' + member.id + '/role', car, 'PATCH', {roleId: staffRole.id})).status).toBe(200);
+  });
+});
