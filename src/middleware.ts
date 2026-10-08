@@ -5,7 +5,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import { memberships } from './db/schema';
 
 export type Env = { DB: D1Database; JWT_SECRET: string; ALLOWED_ORIGIN: string; ENABLE_SEED?: string };
-export type Ctx = { Bindings: Env; Variables: { userId: string; orgId: string | null; role: string; db: any } };
+export type Ctx = { Bindings: Env; Variables: { userId: string; orgId: string | null; role: string; roleId: string | null; db: any } };
 
 export const auth = createMiddleware<Ctx>(async (c, next) => {
   const h = c.req.header('Authorization') ?? '';
@@ -26,6 +26,6 @@ export const tenant = createMiddleware<Ctx>(async (c, next) => {
   const [m] = await c.get('db').select().from(memberships)
     .where(and(eq(memberships.userId, c.get('userId')), eq(memberships.organizationId, org), eq(memberships.status, 'ACTIVE'))).limit(1);
   if (!m) return c.json({ error: 'No active membership for this company' }, 403);
-  c.set('role', m.role);
+  c.set('role', m.role); c.set('roleId', m.roleId ?? null);
   await next();
 });
