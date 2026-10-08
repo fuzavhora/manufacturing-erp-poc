@@ -216,10 +216,16 @@ app.post('/api/organizations', async (c) => {
     .slice(0, 28) || 'COMPANY';
   const code = b.code ? b.code.toUpperCase() : baseCode + '-' + crypto.randomUUID().slice(0, 6).toUpperCase();
   const membershipId = crypto.randomUUID();
+  const defaultRoleId = crypto.randomUUID();
+  const staffPermissionKeys = ['dashboard.read','categories.read','units.read','vehicles.read','items.read','applications.read','boms.read','stock.read','production.read','production.create'];
+  const allPerms = await db.select({ id:T.permissions.id, key:T.permissions.key }).from(T.permissions);
+  const staffPerms = allPerms.filter((p:any)=>staffPermissionKeys.includes(p.key));
 
   await db.batch([
     db.insert(T.organizations).values({ id: organizationId, name: b.name, code }),
-    db.insert(T.memberships).values({ id: membershipId, userId, organizationId, role: 'OWNER', status: 'ACTIVE' }),
+    db.insert(T.roles).values({ id: defaultRoleId, organizationId, name: 'Staff', description: 'Default operational staff role', isSystem: true }),
+    ...staffPerms.map((p:any)=>db.insert(T.rolePermissions).values({ roleId: defaultRoleId, permissionId: p.id })),
+    db.insert(T.memberships).values({ id: membershipId, userId, organizationId, role: 'OWNER', roleId: null, status: 'ACTIVE' }),
   ]);
 
   const organizations = await orgsOf(db, userId);
