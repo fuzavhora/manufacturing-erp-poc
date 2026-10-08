@@ -209,7 +209,7 @@ app.post('/api/invitations/accept', async (c) => {
   if(existing) userId=existing.id;
   else { userId=crypto.randomUUID(); await db.insert(T.users).values({id:userId,name:inv.name,email:inv.email,passwordHash:await hashPw(b.password)}); }
   const [already]=await db.select({id:T.memberships.id}).from(T.memberships).where(and(eq(T.memberships.userId,userId),eq(T.memberships.organizationId,inv.organizationId))).limit(1);
-  if(already.length) return c.json({error:'User is already a member'},409);
+  if(already) return c.json({error:'User is already a member'},409);
   await db.batch([
     db.insert(T.memberships).values({id:crypto.randomUUID(),userId,organizationId:inv.organizationId,role:'STAFF',roleId:inv.roleId,status:'ACTIVE'}),
     db.update(T.organizationInvitations).set({status:'ACCEPTED'}).where(eq(T.organizationInvitations.id,inv.id)),
@@ -244,7 +244,7 @@ app.patch('/api/members/:id/role', async (c) => {
 });
 
 app.use('/api/organization', ownerOnly);
-const ownerTenantManagement = async (c:any, next:any) => c.req.path === '/api/invitations/accept' ? next() : tenant(c, async () => ownerOnly(c, next));
+const ownerTenantManagement = async (c:any, next:any): Promise<any> => c.req.path === '/api/invitations/accept' ? next() : tenant(c, async (_c:any, n:any) => ownerOnly(_c, n));
 app.use('/api/invitations', ownerTenantManagement);
 app.use('/api/invitations/:id/revoke', ownerTenantManagement);
 app.use('/api/roles', ownerOnly);
