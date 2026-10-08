@@ -20,6 +20,7 @@ const NAV = [
   { id: 'Production', label: 'Production', icon: '⚙', perm: 'production.read' },
   { id: 'Audit', label: 'Audit log', icon: '◷', perm: 'audit.read' },
   { id: 'Roles', label: 'Roles & permissions', icon: '♙', owner: true },
+  { id: 'Company', label: 'Company & users', icon: '⚙', owner: true },
 ];
 
 export default function App() {
@@ -43,11 +44,22 @@ export default function App() {
   }, [load]);
 
   if (!ready) return <div className="app-loading"><div className="spinner" /><span>Loading ERP…</span></div>;
+  if (!me && window.location.pathname === '/invite') return <InviteAccept />;
   if (!me) return <Login onDone={() => { setPicking(false); load(); }} />;
   if (!me.orgId || picking) return <Picker orgs={me.organizations} onDone={() => { setPicking(false); load(); }} />;
 
   const org = me.organizations.find((o: R) => o.id === me.orgId);
   return <Shell me={me} org={org} onSwitch={() => setPicking(true)} onLogout={() => { session.clear(); setMe(null); }} />;
+}
+
+
+function InviteAccept() {
+  const token=new URLSearchParams(window.location.search).get('token')||'';
+  const [name,setName]=useState(''),[password,setPassword]=useState(''),[err,setErr]=useState(''),[done,setDone]=useState(false),[busy,setBusy]=useState(false);
+  const accept=async()=>{try{setBusy(true);setErr('');await api('/invitations/accept',{method:'POST',body:{token,name,password}});setDone(true)}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  if(!token)return <div className="auth-page"><div className="auth-card"><h1>Invalid invitation</h1><p className="muted">This invitation link is missing its token.</p></div></div>;
+  if(done)return <div className="auth-page"><div className="auth-card"><div className="eyebrow">INVITATION ACCEPTED</div><h1>Your account is ready</h1><p className="muted">You can now sign in with your email and password.</p><button className="primary wide" onClick={()=>{window.location.href='/'}}>Go to sign in</button></div></div>;
+  return <div className="auth-page"><div className="auth-brand"><div className="brand-mark">SC</div><div><strong>Manufacturing ERP</strong><span>Team invitation</span></div></div><div className="auth-card"><div className="eyebrow">JOIN YOUR COMPANY</div><h1>Complete your account</h1><p className="muted">Set your name and password to accept this invitation.</p><label>Your name<input value={name} onChange={e=>setName(e.target.value)} placeholder="Full name"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>{err&&<div className="alert error">{err}</div>}<button className="primary wide" onClick={accept} disabled={busy||name.trim().length<2||password.length<8}>{busy?'Joining…':'Accept invitation'}</button></div></div>;
 }
 
 function Login({ onDone }: { onDone: () => void }) {
@@ -198,6 +210,7 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
         {tab === 'Production' && <Production D={D} appLabel={(a: R) => appLabel(D, a)} />}
         {tab === 'Audit' && <Audit />}
         {tab === 'Roles' && <Roles me={me} />}
+        {tab === 'Company' && <CompanyUsers me={me} org={org} />}
       </main>
       <nav className="mobile-bottom-nav" aria-label="Primary navigation">
         <button className={tab === 'Dashboard' ? 'active' : ''} onClick={() => selectTab('Dashboard')}><span>⌂</span><small>Home</small></button>
@@ -231,6 +244,39 @@ function Roles({ me }: R) {
     <section className="data-card"><div className="card-heading"><div><h2>Member access</h2><p>Assign a role to each staff member in this company.</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.email}</td><td>{m.role==='OWNER'?<span className="status-chip">OWNER</span>:<select value={m.roleId||''} onChange={async e=>{await api('/members/'+m.id+'/role',{method:'PATCH',body:{roleId:e.target.value||null}});load()}}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td></tr>)}</tbody></table></div>
     </section></div>;
+}
+
+
+function CompanyUsers({ me, org }: R) {
+  const [members,setMembers]=useState<R[]>([]),[roles,setRoles]=useState<R[]>([]),[invites,setInvites]=useState<R[]>([]);
+  const [name,setName]=useState(org?.name||''),[code,setCode]=useState(org?.code||'');
+  const [email,setEmail]=useState(''),[roleId,setRoleId]=useState(''),[inviteLink,setInviteLink]=useState('');
+  const [err,setErr]=useState(''),[ok,setOk]=useState(''),[busy,setBusy]=useState(false);
+  const load=async()=>{try{const [m,r,i]=await Promise.all([api('/members'),api('/roles'),api('/invitations')]);setMembers(m);setRoles(r);setInvites(i);if(!roleId)setRoleId(r.find((x:any)=>!x.isSystem&&x.name!=='OWNER')?.id||r.find((x:any)=>x.name==='Staff')?.id||'')}catch(e:any){setErr(e.message)}};
+  useEffect(()=>{load()},[]);
+  const saveCompany=async()=>{try{setBusy(true);setErr('');await api('/organizations/current',{method:'PATCH',body:{name,code}});setOk('Company details updated.')}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  const invite=async()=>{try{setBusy(true);setErr('');setOk('');const r=await api('/invitations',{method:'POST',body:{email,roleId}});const base=window.location.origin+'/invite?token='+encodeURIComponent(r.token);setInviteLink(base);setEmail('');await load();setOk('Invitation created. Share the link with the employee.')}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  const changeRole=async(id:string,rid:string)=>{try{await api('/members/'+id+'/role',{method:'PATCH',body:{roleId:rid}});await load()}catch(e:any){setErr(e.message)}};
+  const status=async(id:string,s:string)=>{try{await api('/members/'+id+'/status',{method:'PATCH',body:{status:s}});await load()}catch(e:any){setErr(e.message)}};
+  const revoke=async(id:string)=>{try{await api('/invitations/'+id,{method:'DELETE'});await load()}catch(e:any){setErr(e.message)}};
+  return <div className="stack">
+    <section className="data-card"><div className="card-heading"><div><h2>Company settings</h2><p>Manage the identity of the current company workspace.</p></div></div>
+      <div className="form-grid"><label>Company name<input value={name} onChange={e=>setName(e.target.value)}/></label><label>Company code<input value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label></div>
+      <div className="form-footer"><button className="primary" onClick={saveCompany} disabled={busy||name.trim().length<2||code.trim().length<2}>Save company</button></div>
+    </section>
+    <section className="data-card"><div className="card-heading"><div><h2>Invite team member</h2><p>Create an employee account and assign the correct role.</p></div></div>
+      <div className="form-grid"><label>Employee email<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="employee@company.com"/></label><label>Role<select value={roleId} onChange={e=>setRoleId(e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>
+      <div className="form-footer"><button className="primary" onClick={invite} disabled={busy||!email||!roleId}>Create invitation</button></div>
+      {inviteLink&&<div className="invite-link-box"><strong>Invitation link</strong><input readOnly value={inviteLink} onFocus={e=>e.currentTarget.select()}/><small>Valid for 7 days. Copy this link and send it to the employee.</small></div>}
+    </section>
+    <section className="data-card"><div className="card-heading"><div><h2>Team members</h2><p>Assign roles or suspend access without deleting the employee account.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.email}</td><td>{m.role==='OWNER'?<span className="status-chip">OWNER</span>:<select value={m.roleId||''} onChange={e=>changeRole(m.id,e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td><td><span className="status-chip">{m.status}</span></td><td>{m.role!=='OWNER'&&<button className="text-action" onClick={()=>status(m.id,m.status==='ACTIVE'?'SUSPENDED':'ACTIVE')}>{m.status==='ACTIVE'?'Suspend':'Activate'}</button>}</td></tr>)}</tbody></table></div>
+    </section>
+    <section className="data-card"><div className="card-heading"><div><h2>Pending invitations</h2><p>Invitations that have not yet been accepted.</p></div></div>
+      {invites.filter(i=>i.status==='PENDING').map(i=><div className="invite-row" key={i.id}><span><strong>{i.email}</strong><small>{i.roleName} • expires {new Date(i.expiresAt).toLocaleDateString()}</small></span><button className="text-action" onClick={()=>revoke(i.id)}>Revoke</button></div>)}{!invites.some(i=>i.status==='PENDING')&&<div className="empty-dashboard">No pending invitations.</div>}
+    </section>
+    {err&&<div className="alert error">{err}</div>}{ok&&<div className="alert success">{ok}</div>}
+  </div>;
 }
 
 function Dashboard({ org, D, onNavigate, isOwner }: R) {
