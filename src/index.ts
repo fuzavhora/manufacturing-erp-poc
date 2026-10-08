@@ -87,7 +87,7 @@ app.use('/api/roles/*', tenant, ownerOnly);
 app.use('/api/members', tenant, ownerOnly);
 app.use('/api/members/*', tenant, ownerOnly);
 app.use('/api/invitations', tenant, ownerOnly);
-app.use('/api/invitations/:id', tenant, ownerOnly);
+app.use('/api/invitations/:id', async (c, next) => c.req.path === '/api/invitations/accept' ? next() : tenant(c, (cc:any)=>ownerOnly(cc,next)));
 app.get('/api/auth/me', async (c) => {
   const db = c.get('db'), orgId = c.get('orgId');
   const [user] = await db.select({ id: T.users.id, name: T.users.name, email: T.users.email }).from(T.users).where(eq(T.users.id, c.get('userId')));
