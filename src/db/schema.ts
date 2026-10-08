@@ -94,3 +94,9 @@ export const auditLog = sqliteTable('audit_log', {
   action: text('action').notNull(), entityType: text('entity_type').notNull(), entityId: text('entity_id'),
   metadata: text('metadata'), createdAt: created(),
 }, (t) => [index('ix_audit_org_created').on(t.organizationId, t.createdAt), index('ix_audit_org_entity').on(t.organizationId, t.entityType, t.entityId)]);
+
+export const invitations = sqliteTable('invitations', {
+  id: pk(), organizationId: orgCol(), email: text('email').notNull(), roleId: text('role_id').notNull().references(() => roles.id),
+  tokenHash: text('token_hash').notNull().unique(), invitedBy: text('invited_by').notNull().references(() => users.id),
+  status: text('status').notNull().default('PENDING'), expiresAt: text('expires_at').notNull(), createdAt: created(),
+}, (t) => [index('ix_invite_org').on(t.organizationId), index('ix_invite_email').on(t.email)]);
