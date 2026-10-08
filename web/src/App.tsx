@@ -166,6 +166,13 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
         {tab === 'Production' && <Production D={D} appLabel={(a: R) => appLabel(D, a)} />}
         {tab === 'Audit' && <Audit />}
       </main>
+      <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+        <button className={tab === 'Dashboard' ? 'active' : ''} onClick={() => selectTab('Dashboard')}><span>⌂</span><small>Home</small></button>
+        <button className={tab === 'Items' ? 'active' : ''} onClick={() => selectTab('Items')}><span>□</span><small>Items</small></button>
+        <button className={tab === 'Stock' ? 'active' : ''} onClick={() => selectTab('Stock')}><span>◈</span><small>Stock</small></button>
+        <button className={tab === 'Production' ? 'active' : ''} onClick={() => selectTab('Production')}><span>⚙</span><small>Production</small></button>
+        <button onClick={() => setOpenMobileNav(true)}><span>☰</span><small>More</small></button>
+      </nav>
     </section>
   </div>;
 }
