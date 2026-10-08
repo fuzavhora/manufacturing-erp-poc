@@ -10,19 +10,19 @@ const opts = (rows: R[], f: (r: R) => string = (r) => r.name): [string, string][
 
 const ACTIONS = ['read','create','edit','delete'];
 const NAV = [
-  { id: 'Dashboard', label: 'Dashboard', icon: '⌂', perm: 'dashboard.read' },
-  { id: 'Categories', label: 'Categories', icon: '▦', perm: 'categories.read' },
-  { id: 'Units', label: 'Units', icon: '◫', perm: 'units.read' },
-  { id: 'Vehicles', label: 'Vehicles', icon: '▤', perm: 'vehicles.read' },
-  { id: 'Items', label: 'Items', icon: '□', perm: 'items.read' },
-  { id: 'Applications', label: 'Applications', icon: '⊞', perm: 'applications.read' },
-  { id: 'BOM', label: 'BOM', icon: '≡', perm: 'boms.read' },
-  { id: 'Stock', label: 'Stock', icon: '◈', perm: 'stock.read' },
-  { id: 'Production', label: 'Production', icon: '⚙', perm: 'production.read' },
-  { id: 'Audit', label: 'Audit log', icon: '◷', perm: 'audit.read' },
-  { id: 'Roles', label: 'Roles & permissions', icon: '♙', owner: true },
-  { id: 'Users', label: 'Users & access', icon: '♟', owner: true },
-  { id: 'Company', label: 'Company settings', icon: '⚙', owner: true },
+  { id: 'Dashboard', label: 'Dashboard', icon: '⌂', section: 'Workspace', perm: 'dashboard.read' },
+  { id: 'Categories', label: 'Categories', icon: '▦', section: 'Master data', perm: 'categories.read' },
+  { id: 'Units', label: 'Units', icon: '◫', section: 'Master data', perm: 'units.read' },
+  { id: 'Vehicles', label: 'Vehicles', icon: '▤', section: 'Master data', perm: 'vehicles.read' },
+  { id: 'Items', label: 'Items', icon: '□', section: 'Master data', perm: 'items.read' },
+  { id: 'Applications', label: 'Applications', icon: '⊞', section: 'Manufacturing', perm: 'applications.read' },
+  { id: 'BOM', label: 'BOM', icon: '≡', section: 'Manufacturing', perm: 'boms.read' },
+  { id: 'Stock', label: 'Stock', icon: '◈', section: 'Manufacturing', perm: 'stock.read' },
+  { id: 'Production', label: 'Production', icon: '⚙', section: 'Manufacturing', perm: 'production.read' },
+  { id: 'Audit', label: 'Audit log', icon: '◷', section: 'Management', perm: 'audit.read' },
+  { id: 'Roles', label: 'Roles & permissions', icon: '♙', section: 'Management', owner: true },
+  { id: 'Users', label: 'Users & access', icon: '♟', section: 'Management', owner: true },
+  { id: 'Company', label: 'Company settings', icon: '⚙', section: 'Settings', owner: true },
 ];
 
 export default function App() {
@@ -143,6 +143,7 @@ function Picker({ orgs, onDone }: { orgs: R[]; onDone: () => void }) {
 function Shell({ me, org, onSwitch, onLogout }: R) {
   const [tab, setTab] = useState('Dashboard');
   const [openMobileNav, setOpenMobileNav] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [D, setD] = useState<R>({});
   const [err, setErr] = useState('');
   const isOwner = org?.role === 'OWNER';
@@ -169,17 +170,32 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
 
   if (!D.items) return <div className="app-loading"><div className="spinner" /><span>{err || 'Loading workspace…'}</span></div>;
 
+  const navSections = ['Workspace','Master data','Manufacturing','Management','Settings'];
   return <div className="app-shell">
-    <aside className={openMobileNav ? 'sidebar open' : 'sidebar'}>
-      <div className="sidebar-brand"><div className="brand-mark">SC</div><div><strong>Manufacturing ERP</strong><small>Phase 1</small></div></div>
-      <div className="company-mini"><span className="company-avatar">{org?.name?.slice(0, 1)?.toUpperCase()}</span><span><strong>{org?.name}</strong><small>{org?.role}</small></span></div>
-      <div className="nav-label">WORKSPACE</div>
-      <nav className="side-nav">{visibleNav.map((n) =>
-        <button key={n.id} className={tab === n.id ? 'active' : ''} onClick={() => selectTab(n.id)}><span className="nav-icon">{n.icon}</span><span>{n.label}</span></button>
-      )}</nav>
+    <aside className={['sidebar', openMobileNav?'open':'', sidebarCollapsed?'collapsed':''].filter(Boolean).join(' ')}>
+      <div className="sidebar-brand">
+        <div className="brand-mark">SC</div>
+        <div className="sidebar-brand-copy"><strong>Manufacturing ERP</strong><small>{org?.name}</small></div>
+        <button className="sidebar-collapse" onClick={()=>setSidebarCollapsed(v=>!v)} aria-label={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'} title={sidebarCollapsed?'Expand sidebar':'Collapse sidebar'}>{sidebarCollapsed?'»':'«'}</button>
+      </div>
+      <button className="company-mini" onClick={onSwitch} title="Switch company">
+        <span className="company-avatar">{org?.name?.slice(0, 1)?.toUpperCase()}</span>
+        <span className="company-mini-copy"><strong>{org?.name}</strong><small>{org?.role} · Switch company</small></span>
+        <b className="company-chevron">›</b>
+      </button>
+      <nav className="side-nav">
+        {navSections.map(section => {
+          const items=visibleNav.filter(n=>n.section===section);
+          if(!items.length)return null;
+          return <div className="nav-section" key={section}>
+            {section!=='Workspace' && <div className="nav-label">{section}</div>}
+            {items.map(n=><button key={n.id} className={tab===n.id?'active':''} onClick={()=>selectTab(n.id)} title={sidebarCollapsed?n.label:undefined}><span className="nav-icon">{n.icon}</span><span className="nav-text">{n.label}</span>{tab===n.id&&<i className="nav-active-dot"/>}</button>)}
+          </div>;
+        })}
+      </nav>
       <div className="sidebar-bottom">
-        <button onClick={onSwitch}><span className="nav-icon">⇄</span>Switch company</button>
-        <button onClick={onLogout}><span className="nav-icon">↪</span>Sign out</button>
+        <button onClick={onSwitch} title={sidebarCollapsed?'Switch company':undefined}><span className="nav-icon">⇄</span><span className="nav-text">Switch company</span></button>
+        <button onClick={onLogout} title={sidebarCollapsed?'Sign out':undefined}><span className="nav-icon">↪</span><span className="nav-text">Sign out</span></button>
       </div>
     </aside>
     {openMobileNav && <button className="nav-overlay" aria-label="Close navigation" onClick={() => setOpenMobileNav(false)} />}
