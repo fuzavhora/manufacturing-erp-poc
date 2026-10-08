@@ -224,25 +224,104 @@ function InviteAccept({ onDone }: { onDone: () => void }) {
 
 function Users() {
   const [members,setMembers]=useState<R[]>([]),[roles,setRoles]=useState<R[]>([]),[invs,setInvs]=useState<R[]>([]);
-  const [name,setName]=useState(''),[email,setEmail]=useState(''),[roleId,setRoleId]=useState(''),[invite,setInvite]=useState(''),[err,setErr]=useState('');
-  const load=async()=>{try{const [m,r,i]=await Promise.all([api('/members'),api('/roles'),api('/invitations')]);setMembers(m);setRoles(r);setInvs(i)}catch(e:any){setErr(e.message)}};
+  const [tab,setTab]=useState<'members'|'invitations'>('members');
+  const [search,setSearch]=useState(''),[roleFilter,setRoleFilter]=useState('ALL'),[statusFilter,setStatusFilter]=useState('ALL');
+  const [inviteOpen,setInviteOpen]=useState(false),[name,setName]=useState(''),[email,setEmail]=useState(''),[roleId,setRoleId]=useState('');
+  const [invite,setInvite]=useState(''),[err,setErr]=useState(''),[busy,setBusy]=useState('');
+
+  const load=async()=>{try{
+    setErr('');
+    const [m,r,i]=await Promise.all([api('/members'),api('/roles'),api('/invitations')]);
+    setMembers(m);setRoles(r);setInvs(i);
+  }catch(e:any){setErr(e.message)}};
   useEffect(()=>{load()},[]);
-  const send=async()=>{try{setErr('');const r=await api('/invitations',{method:'POST',body:{name,email,roleId}});setInvite(window.location.origin+'/invite?token='+r.inviteToken);setName('');setEmail('');await load()}catch(e:any){setErr(e.message)}};
-  const revoke=async(id:string)=>{try{await api('/invitations/'+id+'/revoke',{method:'POST'});load()}catch(e:any){setErr(e.message)}};
-  const assign=async(id:string,rid:string)=>{try{await api('/members/'+id+'/role',{method:'PATCH',body:{roleId:rid}});load()}catch(e:any){setErr(e.message)}};
-  return <div className="stack">
-    <section className="data-card"><div className="card-heading"><div><h2>Invite team member</h2><p>Create an account invitation and assign its role before they join.</p></div></div>
-      <div className="form-grid"><label>Full name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="Employee name"/></label><label>Email<em>*</em><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="employee@company.com"/></label><label>Role<em>*</em><select value={roleId} onChange={e=>setRoleId(e.target.value)}><option value="">Select role</option>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>
-      <button className="primary" onClick={send} disabled={!name||!email||!roleId}>Create invitation</button>
-      {invite&&<div className="alert success"><strong>Invitation created.</strong><br/><input readOnly value={invite} onFocus={e=>e.currentTarget.select()}/><small>Copy this link and send it to the employee.</small></div>}
-      {err&&<div className="alert error">{err}</div>}
+
+  const send=async()=>{
+    try{
+      setBusy('invite');setErr('');
+      const r=await api('/invitations',{method:'POST',body:{name:name.trim(),email:email.trim(),roleId}});
+      setInvite(window.location.origin+'/invite?token='+r.inviteToken);
+      setName('');setEmail('');setRoleId('');
+      await load();
+    }catch(e:any){setErr(e.message)}finally{setBusy('')}
+  };
+  const revoke=async(id:string)=>{try{setBusy(id);await api('/invitations/'+id+'/revoke',{method:'POST'});await load()}catch(e:any){setErr(e.message)}finally{setBusy('')}};
+  const assign=async(id:string,rid:string)=>{try{setBusy(id);await api('/members/'+id+'/role',{method:'PATCH',body:{roleId:rid}});await load()}catch(e:any){setErr(e.message)}finally{setBusy('')}};
+  const setStatus=async(id:string,status:'ACTIVE'|'INACTIVE')=>{try{setBusy(id);await api('/members/'+id+'/status',{method:'PATCH',body:{status}});await load()}catch(e:any){setErr(e.message)}finally{setBusy('')}};
+  const copyInvite=async()=>{try{await navigator.clipboard.writeText(invite)}catch{}};
+
+  const pendingInvites=invs.filter(i=>i.status==='PENDING');
+  const activeCount=members.filter(m=>m.status==='ACTIVE').length;
+  const inactiveCount=members.filter(m=>m.status!=='ACTIVE').length;
+  const filtered=members.filter(m=>{
+    const q=search.trim().toLowerCase();
+    return (!q||m.name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))
+      &&(roleFilter==='ALL'||m.roleId===roleFilter||m.role===roleFilter)
+      &&(statusFilter==='ALL'||m.status===statusFilter);
+  });
+
+  return <div className="users-page">
+    <section className="users-head">
+      <div><div className="eyebrow">TEAM ACCESS</div><h1>Team members</h1><p>Manage who has access to <strong>this company</strong> and what they can do.</p></div>
+      <button className="primary invite-button" onClick={()=>{setInviteOpen(true);setErr('');}}>＋ Invite member</button>
     </section>
-    <section className="data-card"><div className="card-heading"><div><h2>Team members</h2><p>Manage active access and roles for this company.</p></div></div>
-      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}{m.role==='OWNER'&&<span className="status-chip"> OWNER</span>}</td><td>{m.email}</td><td>{m.role==='OWNER'? 'Owner' : <select value={m.roleId||''} onChange={e=>assign(m.id,e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td></tr>)}</tbody></table></div>
+
+    {err&&<div className="alert error users-alert">{err}</div>}
+
+    <section className="users-summary">
+      <div className="user-stat"><span className="user-stat-icon blue">♙</span><div><small>Total members</small><strong>{members.length}</strong></div></div>
+      <div className="user-stat"><span className="user-stat-icon green">✓</span><div><small>Active access</small><strong>{activeCount}</strong></div></div>
+      <div className="user-stat"><span className="user-stat-icon amber">⌛</span><div><small>Pending invites</small><strong>{pendingInvites.length}</strong></div></div>
+      <div className="user-stat"><span className="user-stat-icon slate">◈</span><div><small>Custom roles</small><strong>{roles.filter(r=>!r.isSystem).length}</strong></div></div>
     </section>
-    <section className="data-card"><div className="card-heading"><div><h2>Pending invitations</h2><p>Invitations expire after 7 days.</p></div></div>
-      {!invs.length?<p className="muted">No pending invitations.</p>:<div className="role-list">{invs.map(i=><div className="role-card" key={i.id}><span><strong>{i.name}</strong><small>{i.email} · expires {new Date(i.expiresAt).toLocaleDateString()}</small></span><button className="secondary danger" onClick={()=>revoke(i.id)}>Revoke</button></div>)}</div>}
+
+    <section className="users-panel">
+      <div className="users-tabs">
+        <button className={tab==='members'?'active':''} onClick={()=>setTab('members')}>Team members <b>{members.length}</b></button>
+        <button className={tab==='invitations'?'active':''} onClick={()=>setTab('invitations')}>Invitations <b>{pendingInvites.length}</b></button>
+      </div>
+
+      {tab==='members' ? <>
+        <div className="member-toolbar">
+          <div className="member-search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name or email…"/></div>
+          <select value={roleFilter} onChange={e=>setRoleFilter(e.target.value)}><option value="ALL">All roles</option>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
+          <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="ALL">All status</option><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select>
+          {(search||roleFilter!=='ALL'||statusFilter!=='ALL')&&<button className="clear-filter" onClick={()=>{setSearch('');setRoleFilter('ALL');setStatusFilter('ALL')}}>Clear</button>}
+        </div>
+
+        <div className="member-table-wrap">
+          <table className="member-table"><thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Access</th><th className="actions-cell">Action</th></tr></thead>
+            <tbody>{filtered.map(m=><tr key={m.id}>
+              <td><div className="member-cell"><span className={'member-avatar '+(m.role==='OWNER'?'owner':'')}>{m.name?.slice(0,1).toUpperCase()}</span><div><strong>{m.name}</strong><small>{m.email}</small></div></div></td>
+              <td>{m.role==='OWNER'?<span className="role-tag owner">Owner</span>:<select className="role-inline" value={m.roleId||''} disabled={busy===m.id} onChange={e=>assign(m.id,e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td>
+              <td><span className={'member-status '+(m.status==='ACTIVE'?'active':'inactive')}><i/> {m.status==='ACTIVE'?'Active':'Inactive'}</span></td>
+              <td><span className="access-note">{m.role==='OWNER'?'Full access':m.status==='ACTIVE'?'Role based access':'Access disabled'}</span></td>
+              <td className="actions-cell">{m.role!=='OWNER'&&<button className={'status-action '+(m.status==='ACTIVE'?'deactivate':'activate')} disabled={busy===m.id} onClick={()=>setStatus(m.id,m.status==='ACTIVE'?'INACTIVE':'ACTIVE')}>{m.status==='ACTIVE'?'Deactivate':'Activate'}</button>}</td>
+            </tr>)}</tbody>
+          </table>
+          {!filtered.length&&<div className="users-empty"><strong>No members found</strong><span>Try changing your search or filters.</span></div>}
+        </div>
+        <div className="member-footer"><span>Showing {filtered.length} of {members.length} members</span><span>{inactiveCount} inactive</span></div>
+
+        <div className="mobile-member-list">{filtered.map(m=><article className="mobile-member-card" key={m.id}>
+          <div className="mobile-member-top"><div className="member-cell"><span className={'member-avatar '+(m.role==='OWNER'?'owner':'')}>{m.name?.slice(0,1).toUpperCase()}</span><div><strong>{m.name}</strong><small>{m.email}</small></div></div><span className={'member-status '+(m.status==='ACTIVE'?'active':'inactive')}><i/></span></div>
+          <div className="mobile-member-meta"><div><small>Role</small>{m.role==='OWNER'?<span className="role-tag owner">Owner</span>:<select className="role-inline" value={m.roleId||''} onChange={e=>assign(m.id,e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</div><div><small>Status</small><strong>{m.status==='ACTIVE'?'Active':'Inactive'}</strong></div></div>
+          {m.role!=='OWNER'&&<button className={'mobile-access-action '+(m.status==='ACTIVE'?'deactivate':'activate')} onClick={()=>setStatus(m.id,m.status==='ACTIVE'?'INACTIVE':'ACTIVE')}>{m.status==='ACTIVE'?'Disable access':'Restore access'}</button>}
+        </article>)}</div>
+      </> : <div className="invitation-list">
+        {!pendingInvites.length?<div className="users-empty"><strong>No pending invitations</strong><span>Invite a team member to give them access to this company.</span><button className="primary" onClick={()=>setInviteOpen(true)}>Invite member</button></div>:
+          pendingInvites.map(i=><article className="invitation-row" key={i.id}><span className="invite-avatar">{i.name?.slice(0,1).toUpperCase()}</span><div className="invite-copy"><strong>{i.name}</strong><small>{i.email} · expires {new Date(i.expiresAt).toLocaleDateString()}</small></div><span className="pending-badge">Pending</span><button className="secondary danger" disabled={busy===i.id} onClick={()=>revoke(i.id)}>{busy===i.id?'…':'Revoke'}</button></article>)}
+      </div>}
     </section>
+
+    {inviteOpen&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setInviteOpen(false)}}>
+      <section className="invite-modal" role="dialog" aria-modal="true">
+        <div className="invite-modal-head"><div><div className="eyebrow">NEW INVITATION</div><h2>Invite team member</h2><p>Choose their role now. They will only get the permissions assigned to that role.</p></div><button className="modal-close" onClick={()=>setInviteOpen(false)}>×</button></div>
+        <div className="invite-form"><label>Full name<em>*</em><input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Rahul Patel"/></label><label>Email address<em>*</em><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="employee@company.com"/></label><label>Role<em>*</em><select value={roleId} onChange={e=>setRoleId(e.target.value)}><option value="">Select a role</option>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>
+        {invite&&<div className="invite-created"><strong>Invitation ready</strong><span>Copy this link and send it to the employee.</span><div><input readOnly value={invite}/><button className="secondary" onClick={copyInvite}>Copy</button></div></div>}
+        <div className="invite-modal-footer"><button className="secondary" onClick={()=>setInviteOpen(false)}>Close</button><button className="primary" disabled={!name.trim()||!email.trim()||!roleId||busy==='invite'} onClick={send}>{busy==='invite'?'Creating…':'Create invitation'}</button></div>
+      </section>
+    </div>}
   </div>;
 }
 
