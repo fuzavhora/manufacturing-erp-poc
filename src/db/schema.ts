@@ -26,6 +26,12 @@ export const permissions = sqliteTable('permissions', {
   id: pk(), key: text('key').notNull().unique(), module: text('module').notNull(), action: text('action').notNull(),
 });
 
+export const organizationInvitations = sqliteTable('organization_invitations', {
+  id: pk(), organizationId: orgCol(), email: text('email').notNull(), name: text('name').notNull(),
+  roleId: text('role_id').references(() => roles.id), tokenHash: text('token_hash').notNull().unique(),
+  status: text('status').notNull().default('PENDING'), expiresAt: text('expires_at').notNull(), invitedBy: text('invited_by').notNull().references(() => users.id), createdAt: created(),
+}, (t) => [index('ix_invite_org_email').on(t.organizationId, t.email), index('ix_invite_token').on(t.tokenHash)]);
+
 export const rolePermissions = sqliteTable('role_permissions', {
   roleId: text('role_id').notNull().references(() => roles.id),
   permissionId: text('permission_id').notNull().references(() => permissions.id),
