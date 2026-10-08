@@ -44,11 +44,22 @@ export default function App() {
   }, [load]);
 
   if (!ready) return <div className="app-loading"><div className="spinner" /><span>Loading ERP…</span></div>;
+  if (!me && window.location.pathname === '/invite') return <InviteAccept />;
   if (!me) return <Login onDone={() => { setPicking(false); load(); }} />;
   if (!me.orgId || picking) return <Picker orgs={me.organizations} onDone={() => { setPicking(false); load(); }} />;
 
   const org = me.organizations.find((o: R) => o.id === me.orgId);
   return <Shell me={me} org={org} onSwitch={() => setPicking(true)} onLogout={() => { session.clear(); setMe(null); }} />;
+}
+
+
+function InviteAccept() {
+  const token=new URLSearchParams(window.location.search).get('token')||'';
+  const [name,setName]=useState(''),[password,setPassword]=useState(''),[err,setErr]=useState(''),[done,setDone]=useState(false),[busy,setBusy]=useState(false);
+  const accept=async()=>{try{setBusy(true);setErr('');await api('/invitations/accept',{method:'POST',body:{token,name,password}});setDone(true)}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  if(!token)return <div className="auth-page"><div className="auth-card"><h1>Invalid invitation</h1><p className="muted">This invitation link is missing its token.</p></div></div>;
+  if(done)return <div className="auth-page"><div className="auth-card"><div className="eyebrow">INVITATION ACCEPTED</div><h1>Your account is ready</h1><p className="muted">You can now sign in with your email and password.</p><button className="primary wide" onClick={()=>{window.location.href='/'}}>Go to sign in</button></div></div>;
+  return <div className="auth-page"><div className="auth-brand"><div className="brand-mark">SC</div><div><strong>Manufacturing ERP</strong><span>Team invitation</span></div></div><div className="auth-card"><div className="eyebrow">JOIN YOUR COMPANY</div><h1>Complete your account</h1><p className="muted">Set your name and password to accept this invitation.</p><label>Your name<input value={name} onChange={e=>setName(e.target.value)} placeholder="Full name"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 8 characters"/></label>{err&&<div className="alert error">{err}</div>}<button className="primary wide" onClick={accept} disabled={busy||name.trim().length<2||password.length<8}>{busy?'Joining…':'Accept invitation'}</button></div></div>;
 }
 
 function Login({ onDone }: { onDone: () => void }) {
