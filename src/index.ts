@@ -245,7 +245,7 @@ app.patch('/api/members/:id/role', async (c) => {
 
 app.use('/api/organization', ownerOnly);
 app.use('/api/invitations', ownerOnly);
-app.use('/api/invitations/*', ownerOnly);
+app.use('/api/invitations/:id/revoke', ownerOnly);
 app.use('/api/roles', ownerOnly);
 app.use('/api/roles/*', ownerOnly);
 app.use('/api/members', ownerOnly);
