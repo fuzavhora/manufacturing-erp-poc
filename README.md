@@ -86,3 +86,5 @@ GitHub Actions runs Node 22 installation, typecheck, frontend build, local D1 mi
 ## Phase 1 CI
 
 Phase 1 validation runs automatically on pushes to feature branches and pull requests targeting `main`.
+
+<!-- Production deployment pipeline enabled -->
