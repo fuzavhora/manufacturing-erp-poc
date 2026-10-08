@@ -13,8 +13,23 @@ export const organizations = sqliteTable('organizations', {
 });
 export const memberships = sqliteTable('memberships', {
   id: pk(), userId: text('user_id').notNull().references(() => users.id),
-  organizationId: orgCol(), role: text('role').notNull(), status: text('status').notNull().default('ACTIVE'),
+  organizationId: orgCol(), role: text('role').notNull(), roleId: text('role_id'),
+  status: text('status').notNull().default('ACTIVE'),
 }, (t) => [uniqueIndex('uq_membership').on(t.userId, t.organizationId), index('ix_mem_org').on(t.organizationId)]);
+
+export const roles = sqliteTable('roles', {
+  id: pk(), organizationId: orgCol(), name: text('name').notNull(), description: text('description'),
+  isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false), createdAt: created(),
+}, (t) => [uniqueIndex('uq_role_org_name').on(t.organizationId, t.name), index('ix_role_org').on(t.organizationId)]);
+
+export const permissions = sqliteTable('permissions', {
+  id: pk(), key: text('key').notNull().unique(), module: text('module').notNull(), action: text('action').notNull(),
+});
+
+export const rolePermissions = sqliteTable('role_permissions', {
+  roleId: text('role_id').notNull().references(() => roles.id),
+  permissionId: text('permission_id').notNull().references(() => permissions.id),
+}, (t) => [uniqueIndex('uq_role_permission').on(t.roleId, t.permissionId), index('ix_rp_role').on(t.roleId)]);
 
 export const itemCategories = sqliteTable('item_categories', {
   id: pk(), organizationId: orgCol(), name: text('name').notNull(),
