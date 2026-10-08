@@ -20,8 +20,10 @@ export async function seed(d1: D1Database) {
   ]);
   const staffPerms = await db.select({ id: T.permissions.id, key: T.permissions.key }).from(T.permissions);
   const allowed = staffPerms.filter((p:any) => ['dashboard.read','categories.read','units.read','vehicles.read','items.read','applications.read','boms.read','stock.read','production.read','production.create'].includes(p.key));
-  await db.batch(allowed.map((p:any) => db.insert(T.rolePermissions).values({ roleId: carStaffRole, permissionId: p.id })));
-  await db.batch(allowed.map((p:any) => db.insert(T.rolePermissions).values({ roleId: aminStaffRole, permissionId: p.id })));
+  await db.insert(T.rolePermissions).values([
+    ...allowed.map((p:any) => ({ roleId: carStaffRole, permissionId: p.id })),
+    ...allowed.map((p:any) => ({ roleId: aminStaffRole, permissionId: p.id })),
+  ]);
   await db.insert(T.memberships).values([
     { userId: owner, organizationId: car, role: 'OWNER', roleId: null, status: 'ACTIVE' },
     { userId: owner, organizationId: amin, role: 'OWNER', roleId: null, status: 'ACTIVE' },
