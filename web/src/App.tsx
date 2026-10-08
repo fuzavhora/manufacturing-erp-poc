@@ -20,6 +20,8 @@ const NAV = [
   { id: 'Production', label: 'Production', icon: '⚙', perm: 'production.read' },
   { id: 'Audit', label: 'Audit log', icon: '◷', perm: 'audit.read' },
   { id: 'Roles', label: 'Roles & permissions', icon: '♙', owner: true },
+  { id: 'Users', label: 'Users & access', icon: '♟', owner: true },
+  { id: 'Company', label: 'Company settings', icon: '⚙', owner: true },
 ];
 
 export default function App() {
@@ -43,7 +45,7 @@ export default function App() {
   }, [load]);
 
   if (!ready) return <div className="app-loading"><div className="spinner" /><span>Loading ERP…</span></div>;
-  if (!me) return <Login onDone={() => { setPicking(false); load(); }} />;
+  if (!me) return window.location.pathname === '/invite' ? <InviteAccept onDone={() => { window.history.replaceState({}, '', '/'); load(); }} /> : <Login onDone={() => { setPicking(false); load(); }} />;
   if (!me.orgId || picking) return <Picker orgs={me.organizations} onDone={() => { setPicking(false); load(); }} />;
 
   const org = me.organizations.find((o: R) => o.id === me.orgId);
@@ -198,6 +200,8 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
         {tab === 'Production' && <Production D={D} appLabel={(a: R) => appLabel(D, a)} />}
         {tab === 'Audit' && <Audit />}
         {tab === 'Roles' && <Roles me={me} />}
+        {tab === 'Users' && <Users />}
+        {tab === 'Company' && <Company />}
       </main>
       <nav className="mobile-bottom-nav" aria-label="Primary navigation">
         <button className={tab === 'Dashboard' ? 'active' : ''} onClick={() => selectTab('Dashboard')}><span>⌂</span><small>Home</small></button>
@@ -208,6 +212,45 @@ function Shell({ me, org, onSwitch, onLogout }: R) {
       </nav>
     </section>
   </div>;
+}
+
+function InviteAccept({ onDone }: { onDone: () => void }) {
+  const token=new URLSearchParams(window.location.search).get('token')||'';
+  const [password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[err,setErr]=useState(''),[busy,setBusy]=useState(false);
+  const submit=async()=>{if(password.length<8||password!==confirm){setErr('Use an 8+ character password and make both passwords match.');return}try{setBusy(true);const r=await api('/invitations/accept',{method:'POST',body:{token,password}});session.set(r.token);onDone()}catch(e:any){setErr(e.message)}finally{setBusy(false)}};
+  return <div className="auth-page"><div className="auth-brand"><div className="brand-mark">SC</div><div><strong>Manufacturing ERP</strong><span>Company invitation</span></div></div><div className="auth-card"><div className="eyebrow">INVITATION</div><h1>Join your company</h1><p className="muted">Set your password to activate your ERP account.</p><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Minimum 8 characters"/></label><label>Confirm password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label>{err&&<div className="alert error">{err}</div>}<button className="primary wide" onClick={submit} disabled={busy||!token}>{busy?'Activating…':'Accept invitation'}</button></div></div>;
+}
+
+function Users() {
+  const [members,setMembers]=useState<R[]>([]),[roles,setRoles]=useState<R[]>([]),[invs,setInvs]=useState<R[]>([]);
+  const [name,setName]=useState(''),[email,setEmail]=useState(''),[roleId,setRoleId]=useState(''),[invite,setInvite]=useState(''),[err,setErr]=useState('');
+  const load=async()=>{try{const [m,r,i]=await Promise.all([api('/members'),api('/roles'),api('/invitations')]);setMembers(m);setRoles(r);setInvs(i)}catch(e:any){setErr(e.message)}};
+  useEffect(()=>{load()},[]);
+  const send=async()=>{try{setErr('');const r=await api('/invitations',{method:'POST',body:{name,email,roleId}});setInvite(window.location.origin+'/invite?token='+r.inviteToken);setName('');setEmail('');await load()}catch(e:any){setErr(e.message)}};
+  const revoke=async(id:string)=>{try{await api('/invitations/'+id+'/revoke',{method:'POST'});load()}catch(e:any){setErr(e.message)}};
+  const assign=async(id:string,rid:string)=>{try{await api('/members/'+id+'/role',{method:'PATCH',body:{roleId:rid}});load()}catch(e:any){setErr(e.message)}};
+  return <div className="stack">
+    <section className="data-card"><div className="card-heading"><div><h2>Invite team member</h2><p>Create an account invitation and assign its role before they join.</p></div></div>
+      <div className="form-grid"><label>Full name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="Employee name"/></label><label>Email<em>*</em><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="employee@company.com"/></label><label>Role<em>*</em><select value={roleId} onChange={e=>setRoleId(e.target.value)}><option value="">Select role</option>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label></div>
+      <button className="primary" onClick={send} disabled={!name||!email||!roleId}>Create invitation</button>
+      {invite&&<div className="alert success"><strong>Invitation created.</strong><br/><input readOnly value={invite} onFocus={e=>e.currentTarget.select()}/><small>Copy this link and send it to the employee.</small></div>}
+      {err&&<div className="alert error">{err}</div>}
+    </section>
+    <section className="data-card"><div className="card-heading"><div><h2>Team members</h2><p>Manage active access and roles for this company.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Member</th><th>Email</th><th>Role</th></tr></thead><tbody>{members.map(m=><tr key={m.id}><td>{m.name}{m.role==='OWNER'&&<span className="status-chip"> OWNER</span>}</td><td>{m.email}</td><td>{m.role==='OWNER'? 'Owner' : <select value={m.roleId||''} onChange={e=>assign(m.id,e.target.value)}>{roles.filter(r=>r.name!=='OWNER').map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</td></tr>)}</tbody></table></div>
+    </section>
+    <section className="data-card"><div className="card-heading"><div><h2>Pending invitations</h2><p>Invitations expire after 7 days.</p></div></div>
+      {!invs.length?<p className="muted">No pending invitations.</p>:<div className="role-list">{invs.map(i=><div className="role-card" key={i.id}><span><strong>{i.name}</strong><small>{i.email} · expires {new Date(i.expiresAt).toLocaleDateString()}</small></span><button className="secondary danger" onClick={()=>revoke(i.id)}>Revoke</button></div>)}</div>}
+    </section>
+  </div>;
+}
+
+function Company() {
+  const [org,setOrg]=useState<R|null>(null),[name,setName]=useState(''),[err,setErr]=useState(''),[saved,setSaved]=useState(false);
+  useEffect(()=>{api('/organization').then((r)=>{setOrg(r);setName(r.name)}).catch((e:any)=>setErr(e.message))},[]);
+  const save=async()=>{try{const r=await api('/organization',{method:'PATCH',body:{name}});setOrg(r);setSaved(true);setTimeout(()=>setSaved(false),2000)}catch(e:any){setErr(e.message)}};
+  if(!org)return <div className="page-state">{err||'Loading company…'}</div>;
+  return <div className="stack"><section className="data-card"><div className="card-heading"><div><h2>Company settings</h2><p>Manage the identity of the currently selected company.</p></div></div><div className="form-grid"><label>Company name<em>*</em><input value={name} onChange={e=>setName(e.target.value)}/></label><label>Company code<input value={org.code} disabled/></label></div><button className="primary" onClick={save} disabled={name.trim().length<2}>Save company</button>{saved&&<div className="alert success">Company details saved.</div>}{err&&<div className="alert error">{err}</div>}</section></div>;
 }
 
 function Roles({ me }: R) {
