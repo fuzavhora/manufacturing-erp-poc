@@ -306,9 +306,9 @@ function Roles({ me }: R) {
       let r: R;
       if(!selected){r=await api('/roles',{method:'POST',body:{name,description,permissionKeys:keys}})}
       else {
-        await api('/roles/'+r.id,{method:'PATCH',body:{name,description}});
-        await api('/roles/'+r.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}});
-        r=await api('/roles/'+r.id);
+        await api('/roles/'+selected.id,{method:'PATCH',body:{name,description}});
+        await api('/roles/'+selected.id+'/permissions',{method:'PUT',body:{permissionKeys:keys}});
+        r=await api('/roles/'+selected.id);
       }
       setSelected(r);setName(r.name);setDescription(r.description||'');setKeys(r.permissions||[]);
       setEditing(false);await load();
