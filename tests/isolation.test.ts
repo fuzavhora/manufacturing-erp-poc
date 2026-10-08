@@ -58,7 +58,10 @@ describe('auth + tenancy', () => {
     expect((await call('/api/members/' + member.id + '/role', car, 'PATCH', {roleId: created.json.id})).status).toBe(200);
     const switched = await into('staff@demo.com', 'Carstuff');
     expect((await call('/api/stock', switched.token)).status).toBe(403);
-    expect((await call('/api/production', switched.token)).status).toBe(200);
+    expect((await call('/api/production', switched.token, 'POST', {})).status).toBe(422);
+    const staffRole = (await call('/api/roles', car)).json.find((r:any)=>r.name==='Staff');
+    expect(staffRole).toBeTruthy();
+    expect((await call('/api/members/' + member.id + '/role', car, 'PATCH', {roleId: staffRole.id})).status).toBe(200);
   });
 });
 
