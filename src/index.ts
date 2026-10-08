@@ -195,6 +195,16 @@ app.get('/api/members', async (c) => {
     .where(eq(T.memberships.organizationId,org));
   return c.json(rows);
 });
+app.patch('/api/members/:id/status', async (c) => {
+  const b=parse(z.object({status:z.enum(['ACTIVE','SUSPENDED'])}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [m]=await db.select().from(T.memberships).where(and(eq(T.memberships.id,id),eq(T.memberships.organizationId,org))).limit(1);
+  if(!m) return c.json({error:'Member not found'},404);
+  if(m.role==='OWNER') return c.json({error:'Owner membership cannot be suspended'},409);
+  await db.update(T.memberships).set({status:b.status}).where(eq(T.memberships.id,id));
+  await db.insert(T.auditLog).values({organizationId:org,userId:c.get('userId'),action:'UPDATE',entityType:'/api/members/status',entityId:id});
+  return c.json({ok:true,status:b.status});
+});
 app.patch('/api/members/:id/role', async (c) => {
   const b=parse(z.object({roleId:z.string().nullable()}),await c.req.json());
   const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
@@ -217,6 +227,8 @@ app.use('/api/roles', ownerOnly);
 app.use('/api/roles/*', ownerOnly);
 app.use('/api/members', ownerOnly);
 app.use('/api/members/*', ownerOnly);
+app.use('/api/invitations', ownerOnly);
+app.use('/api/invitations/*', ownerOnly);
 app.get('/api/audit', async (c) => {
   const org = c.get('orgId');
   if (!org) return c.json({ error: 'Select a company first' }, 403);
@@ -226,6 +238,15 @@ app.get('/api/audit', async (c) => {
   return c.json(rows);
 });
 
+app.patch('/api/organizations/current', async (c) => {
+  const b=parse(z.object({name:z.string().trim().min(2).max(120),code:z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/)}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db');
+  const [m]=await db.select().from(T.memberships).where(and(eq(T.memberships.userId,c.get('userId')),eq(T.memberships.organizationId,org),eq(T.memberships.role,'OWNER'),eq(T.memberships.status,'ACTIVE'))).limit(1);
+  if(!m)return c.json({error:'Only the company owner can edit company details'},403);
+  await db.update(T.organizations).set({name:b.name,code:b.code.toUpperCase()}).where(eq(T.organizations.id,org));
+  await db.insert(T.auditLog).values({organizationId:org,userId:c.get('userId'),action:'UPDATE',entityType:'/api/organizations',entityId:org});
+  return c.json({ok:true,organization:{id:org,name:b.name,code:b.code.toUpperCase()}});
+});
 app.post('/api/organizations/switch', async (c) => {
   const { organizationId } = parse(z.object({ organizationId: z.string() }), await c.req.json());
   const mine = await orgsOf(c.get('db'), c.get('userId'));
