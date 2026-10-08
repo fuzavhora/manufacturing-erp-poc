@@ -77,9 +77,16 @@ for (const [path, module] of PERMISSION_PATHS) {
 
 
 app.get('/api/auth/me', async (c) => {
-  const db = c.get('db');
+  const db = c.get('db'), orgId = c.get('orgId');
   const [user] = await db.select({ id: T.users.id, name: T.users.name, email: T.users.email }).from(T.users).where(eq(T.users.id, c.get('userId')));
-  return c.json({ user, orgId: c.get('orgId'), organizations: await orgsOf(db, c.get('userId')) });
+  let permissions:string[] = [];
+  if (orgId) {
+    const [m] = await db.select({role:T.memberships.role,roleId:T.memberships.roleId}).from(T.memberships)
+      .where(and(eq(T.memberships.userId,c.get('userId')),eq(T.memberships.organizationId,orgId),eq(T.memberships.status,'ACTIVE'))).limit(1);
+    if (m?.role === 'OWNER') permissions = (await db.select({key:T.permissions.key}).from(T.permissions)).map((p:any)=>p.key);
+    else if (m?.roleId) permissions = (await db.select({key:T.permissions.key}).from(T.rolePermissions).innerJoin(T.permissions,eq(T.rolePermissions.permissionId,T.permissions.id)).where(eq(T.rolePermissions.roleId,m.roleId))).map((p:any)=>p.key);
+  }
+  return c.json({ user, orgId, organizations: await orgsOf(db, c.get('userId')), permissions });
 });
 app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.get('userId'))));
 app.get('/api/permissions', async (c) => {
