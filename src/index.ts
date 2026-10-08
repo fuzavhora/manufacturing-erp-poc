@@ -10,7 +10,7 @@ import { verifyPw } from './lib/crypto';
 import { seed } from './seed';
 import { requirements } from './services/bom';
 import { HttpError, produce, stockMap } from './services/production';
-import { ownerOnly, ownerOrStaff } from './lib/permissions';
+import { ownerOnly, ownerOrStaff, permission } from './lib/permissions';
 import { auditStatement } from './services/audit';
 
 const app = new Hono<Ctx>();
@@ -53,21 +53,28 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 
 // ---------- authenticated (no org needed) ----------
 app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() : auth(c, next)));
-const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit'];
+const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit', 'roles', 'members'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
-// Master data is readable by OWNER + STAFF, but only OWNER may create/update/delete it.
-const ownerWriteOnly = async (c: any, next: () => Promise<void>) => {
-  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next();
-  return ownerOnly(c, next);
+// Every business module is protected by an action-level permission.
+// OWNER is handled as an unrestricted system role by requirePermission().
+const PERMISSION_PATHS: Array<[string, string]> = [
+  ['/api/categories','categories'], ['/api/units','units'],
+  ['/api/vehicles/makes','vehicles'], ['/api/vehicles/models','vehicles'], ['/api/vehicles/variants','vehicles'],
+  ['/api/items','items'], ['/api/product-applications','applications'], ['/api/boms','boms'],
+  ['/api/stock','stock'], ['/api/production','production'], ['/api/dashboard','dashboard'], ['/api/audit','audit'],
+];
+const permissionFor = (module: string, method: string) => {
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return module + '.read';
+  if (method === 'POST') return module + '.create';
+  if (method === 'PATCH' || method === 'PUT') return module + '.edit';
+  return module + '.delete';
 };
-const OWNER_ONLY_PATHS = ['/api/categories', '/api/units', '/api/vehicles/makes', '/api/vehicles/models', '/api/vehicles/variants', '/api/items', '/api/product-applications', '/api/boms'];
-for (const p of OWNER_ONLY_PATHS) {
-  app.use(p, ownerWriteOnly);
-  app.use(`${p}/*`, ownerWriteOnly);
+for (const [path, module] of PERMISSION_PATHS) {
+  const guard = async (c: any, next: () => Promise<void>) => permission(permissionFor(module, c.req.method))(c, next);
+  app.use(path, guard); app.use(`${path}/*`, guard);
 }
-app.use('/api/production', ownerOrStaff);
-app.use('/api/production/*', ownerOrStaff);
+
 
 app.get('/api/auth/me', async (c) => {
   const db = c.get('db');
@@ -75,8 +82,91 @@ app.get('/api/auth/me', async (c) => {
   return c.json({ user, orgId: c.get('orgId'), organizations: await orgsOf(db, c.get('userId')) });
 });
 app.get('/api/organizations', async (c) => c.json(await orgsOf(c.get('db'), c.get('userId'))));
-app.use('/api/audit', ownerOnly);
-app.use('/api/audit/*', ownerOnly);
+app.get('/api/permissions', async (c) => {
+  const rows = await c.get('db').select().from(T.permissions);
+  return c.json(rows);
+});
+app.get('/api/roles', async (c) => {
+  const org = c.get('orgId') as string;
+  return c.json(await c.get('db').select().from(T.roles).where(eq(T.roles.organizationId, org)));
+});
+app.get('/api/roles/:id', async (c) => {
+  const org = c.get('orgId') as string;
+  const [role] = await c.get('db').select().from(T.roles).where(and(eq(T.roles.id,c.req.param('id')),eq(T.roles.organizationId,org))).limit(1);
+  if (!role) return c.json({error:'Not found'},404);
+  const permissions = await c.get('db').select({ key:T.permissions.key }).from(T.rolePermissions)
+    .innerJoin(T.permissions,eq(T.rolePermissions.permissionId,T.permissions.id)).where(eq(T.rolePermissions.roleId,role.id));
+  return c.json({...role, permissions: permissions.map((p:any)=>p.key)});
+});
+app.post('/api/roles', async (c) => {
+  const b = parse(z.object({name:z.string().trim().min(2).max(80),description:z.string().trim().max(200).optional(),permissionKeys:z.array(z.string()).default([])}), await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=crypto.randomUUID();
+  const perms=await db.select({id:T.permissions.id,key:T.permissions.key}).from(T.permissions);
+  const selected=perms.filter((p:any)=>b.permissionKeys.includes(p.key));
+  await db.batch([
+    db.insert(T.roles).values({id,organizationId:org,name:b.name,description:b.description ?? null,isSystem:false}),
+    ...selected.map((p:any)=>db.insert(T.rolePermissions).values({roleId:id,permissionId:p.id})),
+    auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'CREATE',entityType:'/api/roles',entityId:id}),
+  ]);
+  return c.json(await db.select().from(T.roles).where(eq(T.roles.id,id)).limit(1).then((r:any)=>r[0]),201);
+});
+app.patch('/api/roles/:id', async (c) => {
+  const b=parse(z.object({name:z.string().trim().min(2).max(80).optional(),description:z.string().trim().max(200).nullable().optional()}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
+  if(!role || role.isSystem) return c.json({error: role ? 'System role cannot be edited' : 'Not found'},role?409:404);
+  await db.update(T.roles).set(b).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org)));
+  return c.json(await db.select().from(T.roles).where(eq(T.roles.id,id)).limit(1).then((r:any)=>r[0]));
+});
+app.put('/api/roles/:id/permissions', async (c) => {
+  const b=parse(z.object({permissionKeys:z.array(z.string())}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
+  if(!role || role.isSystem) return c.json({error: role ? 'System role cannot be edited' : 'Not found'},role?409:404);
+  const perms=await db.select({id:T.permissions.id,key:T.permissions.key}).from(T.permissions);
+  const selected=perms.filter((p:any)=>b.permissionKeys.includes(p.key));
+  await db.batch([db.delete(T.rolePermissions).where(eq(T.rolePermissions.roleId,id)),...selected.map((p:any)=>db.insert(T.rolePermissions).values({roleId:id,permissionId:p.id})),auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'UPDATE',entityType:'/api/roles/permissions',entityId:id})]);
+  return c.json({ok:true,permissions:selected.map((p:any)=>p.key)});
+});
+app.delete('/api/roles/:id', async (c) => {
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [role]=await db.select().from(T.roles).where(and(eq(T.roles.id,id),eq(T.roles.organizationId,org))).limit(1);
+  if(!role) return c.json({error:'Not found'},404);
+  if(role.isSystem) return c.json({error:'System role cannot be deleted'},409);
+  const used=await db.select({id:T.memberships.id}).from(T.memberships).where(and(eq(T.memberships.roleId,id),eq(T.memberships.organizationId,org))).limit(1);
+  if(used.length) return c.json({error:'Role is assigned to a member'},409);
+  await db.batch([db.delete(T.rolePermissions).where(eq(T.rolePermissions.roleId,id)),db.delete(T.roles).where(eq(T.roles.id,id)),auditStatement(db,{organizationId:org,userId:c.get('userId'),action:'DELETE',entityType:'/api/roles',entityId:id})]);
+  return c.json({ok:true});
+});
+app.get('/api/members', async (c) => {
+  const org=c.get('orgId') as string, db=c.get('db');
+  const rows=await db.select({id:T.memberships.id,userId:T.users.id,name:T.users.name,email:T.users.email,role:T.memberships.role,roleId:T.memberships.roleId,status:T.memberships.status,roleName:T.roles.name})
+    .from(T.memberships).innerJoin(T.users,eq(T.memberships.userId,T.users.id)).leftJoin(T.roles,eq(T.memberships.roleId,T.roles.id))
+    .where(eq(T.memberships.organizationId,org));
+  return c.json(rows);
+});
+app.patch('/api/members/:id/role', async (c) => {
+  const b=parse(z.object({roleId:z.string().nullable()}),await c.req.json());
+  const org=c.get('orgId') as string, db=c.get('db'), id=c.req.param('id');
+  const [m]=await db.select().from(T.memberships).where(and(eq(T.memberships.id,id),eq(T.memberships.organizationId,org))).limit(1);
+  if(!m) return c.json({error:'Member not found'},404);
+  if(b.roleId){
+    const [r]=await db.select().from(T.roles).where(and(eq(T.roles.id,b.roleId),eq(T.roles.organizationId,org))).limit(1);
+    if(!r) return c.json({error:'Role not found in this company'},422);
+    if(r.name==='OWNER') return c.json({error:'Owner is a system account role'},422);
+    await db.update(T.memberships).set({role:r.name,roleId:r.id}).where(eq(T.memberships.id,id));
+  } else {
+    const [r]=await db.select().from(T.roles).where(and(eq(T.roles.organizationId,org),eq(T.roles.name,'Staff'))).limit(1);
+    if(!r) return c.json({error:'Default Staff role not found'},500);
+    await db.update(T.memberships).set({role:r.name,roleId:r.id}).where(eq(T.memberships.id,id));
+  }
+  return c.json({ok:true});
+});
+
+app.use('/api/roles', ownerOnly);
+app.use('/api/roles/*', ownerOnly);
+app.use('/api/members', ownerOnly);
+app.use('/api/members/*', ownerOnly);
 app.get('/api/audit', async (c) => {
   const org = c.get('orgId');
   if (!org) return c.json({ error: 'Select a company first' }, 403);
