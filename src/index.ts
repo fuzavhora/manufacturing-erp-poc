@@ -93,6 +93,46 @@ app.post('/api/organizations/switch', async (c) => {
   return c.json({ token: await issue(c, c.get('userId'), organizationId), organizationId });
 });
 
+app.post('/api/organizations', async (c) => {
+  const b = parse(z.object({
+    name: z.string().trim().min(2).max(120),
+    code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  }), await c.req.json());
+
+  const db = c.get('db');
+  const userId = c.get('userId');
+
+  // Company creation is an account-owner capability, never a STAFF capability.
+  const ownedMemberships = await db.select({ id: T.memberships.id })
+    .from(T.memberships)
+    .where(and(
+      eq(T.memberships.userId, userId),
+      eq(T.memberships.role, 'OWNER'),
+      eq(T.memberships.status, 'ACTIVE'),
+    ));
+  if (ownedMemberships.length === 0) return c.json({ error: 'Only a company owner can create another company' }, 403);
+  const organizationId = crypto.randomUUID();
+  const baseCode = (b.code || b.name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 28) || 'COMPANY';
+  const code = b.code ? b.code.toUpperCase() : baseCode + '-' + crypto.randomUUID().slice(0, 6).toUpperCase();
+  const membershipId = crypto.randomUUID();
+
+  await db.batch([
+    db.insert(T.organizations).values({ id: organizationId, name: b.name, code }),
+    db.insert(T.memberships).values({ id: membershipId, userId, organizationId, role: 'OWNER', status: 'ACTIVE' }),
+  ]);
+
+  const organizations = await orgsOf(db, userId);
+  return c.json({
+    organization: organizations.find((o: any) => o.id === organizationId),
+    organizations,
+    token: await issue(c, userId, organizationId),
+  }, 201);
+});
+
 // ---------- generic tenant-scoped CRUD ----------
 const owns = async (db: any, t: any, id: string, org: string) =>
   (await db.select({ id: t.id }).from(t).where(and(eq(t.id, id), eq(t.organizationId, org))).limit(1)).length > 0;

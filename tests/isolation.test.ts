@@ -109,3 +109,23 @@ describe('phase 1 RBAC + audit', () => {
     expect((await call('/api/audit', staff.token)).status).toBe(403);
   });
 });
+
+
+describe('multi-company creation', () => {
+  it('16 owner can create a new company and receives owner access', async () => {
+    const name = 'Test Company ' + rnd();
+    const created = await call('/api/organizations', car, 'POST', { name });
+    expect(created.status).toBe(201);
+    expect(created.json.organization.name).toBe(name);
+    expect(created.json.organization.role).toBe('OWNER');
+    expect(created.json.token).toBeTruthy();
+
+    const fresh = await call('/api/items', created.json.token);
+    expect(fresh.status).toBe(200);
+    expect(fresh.json).toEqual([]);
+
+    const orgs = await call('/api/organizations', car);
+    expect(orgs.status).toBe(200);
+    expect(orgs.json.some((o: any) => o.id === created.json.organization.id && o.name === name)).toBe(true);
+  });
+});
