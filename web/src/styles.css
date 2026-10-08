@@ -433,3 +433,87 @@ tbody tr:hover td{background:#fbfcfe}
   .content{padding-left:11px;padding-right:11px}
   .status-chip{font-size:9px}
 }
+
+
+/* Dashboard v3 — business app, not generic admin */
+.dashboard-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:18px}
+.dashboard-head h1{margin:3px 0 4px;font-size:29px}
+.dashboard-head p{margin:0;color:#687386;font-size:13px}
+.dashboard-company{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid #e2e6ed;background:#fff;border-radius:12px;text-align:left}
+.dashboard-company:hover{border-color:#c9d3e2}
+.dashboard-company small,.dashboard-company strong{display:block}
+.dashboard-company small{font-size:10px;color:#8992a1;text-transform:uppercase;letter-spacing:.06em}
+.dashboard-company strong{font-size:12px;color:#263142}
+.business-status{background:#fff;border:1px solid #e1e5eb;border-radius:12px;margin-bottom:16px;box-shadow:0 1px 2px rgba(17,24,39,.03)}
+.status-title{padding:12px 15px;border-bottom:1px solid #edf0f4;font-size:12px;font-weight:800;color:#374151;display:flex;align-items:center;gap:7px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#18a566;box-shadow:0 0 0 3px #e8f7ef}
+.status-grid{display:grid;grid-template-columns:repeat(5,1fr)}
+.status-metric{padding:14px 15px;border-right:1px solid #edf0f4}
+.status-metric:last-child{border-right:0}
+.status-metric small{display:block;color:#7a8493;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.status-metric strong{font-size:22px;line-height:1;color:#202938}
+.status-metric.warning strong{color:#d97706}
+.status-metric.good strong{color:#16875a}
+.status-metric.blue strong{color:#2563eb}
+.dashboard-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:16px}
+.dashboard-grid.lower{grid-template-columns:1fr 1fr}
+.dash-card{background:#fff;border:1px solid #e1e5eb;border-radius:12px;padding:17px;min-width:0;box-shadow:0 1px 2px rgba(17,24,39,.03)}
+.dash-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.dash-card-head h2{font-size:15px;margin:0 0 3px;color:#202938}
+.dash-card-head p{font-size:11px;color:#8a93a1;margin:0}
+.period-pill{font-size:10px;color:#6b7280;border:1px solid #e3e7ed;border-radius:999px;padding:5px 8px;background:#fafbfc}
+.mini-chart{height:190px;margin-top:5px}
+.chart-bars{height:160px;display:flex;align-items:flex-end;justify-content:space-around;gap:8px;padding:8px 5px 0;border-bottom:1px solid #e8ebef}
+.bar-group{height:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px}
+.bars{height:100%;width:100%;max-width:34px;display:flex;align-items:flex-end;justify-content:center;gap:3px}
+.bars span{width:9px;min-height:3px;border-radius:3px 3px 0 0;background:#3478e5;transition:height .3s}
+.bars span.out{background:#f0a14a}
+.bar-group small,.line-labels small{font-size:9px;color:#929aa7}
+.chart-legend{display:flex;gap:17px;margin-top:10px;font-size:10px;color:#737d8c}
+.chart-legend i{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:5px}
+.legend-in{background:#3478e5}.legend-out{background:#f0a14a}
+.line-chart svg{width:100%;height:160px;overflow:visible}
+.chart-grid-line{fill:none;stroke:#edf0f3;stroke-width:.7}
+.chart-line{fill:none;stroke:#2563eb;stroke-width:2.2;vector-effect:non-scaling-stroke}
+.chart-point{fill:#fff;stroke:#2563eb;stroke-width:1.8;vector-effect:non-scaling-stroke}
+.line-labels{display:flex;justify-content:space-between;padding:5px 3px 0}
+.text-action{border:0;background:none;color:#2563eb;font-size:11px;font-weight:700;padding:2px 0}
+.text-action:hover{text-decoration:underline}
+.stock-list{border-top:1px solid #edf0f4}
+.stock-row{width:100%;display:flex;align-items:center;gap:10px;padding:10px 1px;border:0;border-bottom:1px solid #f0f2f5;background:#fff;text-align:left}
+.stock-row:last-child{border-bottom:0}
+.stock-row:hover{background:#fafbfd}
+.stock-item-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:#fff2e5;color:#b76511;font-size:9px;font-weight:900}
+.stock-item-icon.neutral{background:#eef4ff;color:#356cc5}
+.stock-item-copy{min-width:0;flex:1}
+.stock-item-copy strong,.stock-item-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stock-item-copy strong{font-size:12px;color:#303947}
+.stock-item-copy small{font-size:9px;color:#9aa2ad;margin-top:2px}
+.stock-number{font-size:13px;font-weight:800;color:#273243;white-space:nowrap}
+.stock-number.low{color:#d97706}
+.stock-number small{font-size:9px;font-weight:600;color:#9aa2ad}
+.empty-dashboard{padding:26px 4px;color:#7d8795;font-size:11px;text-align:center}
+.dashboard-actions{margin-top:6px}
+@media(max-width:900px){
+  .status-grid{grid-template-columns:repeat(3,1fr)}
+  .status-metric:nth-child(3){border-right:0}
+  .status-metric:nth-child(-n+3){border-bottom:1px solid #edf0f4}
+  .dashboard-grid,.dashboard-grid.lower{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+  .dashboard-head{align-items:flex-start;margin-bottom:14px}
+  .dashboard-head h1{font-size:23px}
+  .dashboard-company{display:none}
+  .business-status{border-radius:11px}
+  .status-grid{grid-template-columns:repeat(2,1fr)}
+  .status-metric{padding:12px}
+  .status-metric:nth-child(3){border-right:1px solid #edf0f4}
+  .status-metric:nth-child(5){grid-column:span 2;border-right:0}
+  .status-metric:nth-child(n){border-bottom:1px solid #edf0f4}
+  .status-metric:last-child{border-bottom:0}
+  .dash-card{padding:14px;border-radius:11px}
+  .mini-chart{height:170px}
+  .chart-bars{height:145px}
+  .line-chart svg{height:145px}
+  .dashboard-grid{gap:11px;margin-bottom:11px}
+}

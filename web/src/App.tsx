@@ -184,27 +184,96 @@ function Dashboard({ org, D, onNavigate, isOwner }: R) {
 
   const actions = [
     ...(isOwner ? [
-      { title: 'Create item', text: 'Add a raw material or finished good', tab: 'Items', icon: '□' },
-      { title: 'Define vehicle', text: 'Manage makes, models and variants', tab: 'Vehicles', icon: '▤' },
-      { title: 'Create BOM', text: 'Define manufacturing material requirements', tab: 'BOM', icon: '≡' },
+      { title: 'New item', text: 'Add material or finished product', tab: 'Items', icon: '＋' },
+      { title: 'New BOM', text: 'Set production material recipe', tab: 'BOM', icon: '≡' },
     ] : []),
-    { title: 'Run production', text: 'Consume materials and add finished stock', tab: 'Production', icon: '⚙' },
+    { title: 'Record production', text: 'Create finished stock from a BOM', tab: 'Production', icon: '▶' },
+    { title: 'Check stock', text: 'Review balances and shortages', tab: 'Stock', icon: '▤' },
   ];
 
   return <>
-    <div className="page-heading hero-heading"><div><div className="eyebrow">OVERVIEW</div><h1>{org?.name}</h1><p>Here’s what’s happening in your manufacturing workspace.</p></div><span className="status-chip"><i /> System ready</span></div>
-    <div className="stats-grid">
-      <Stat label="Total items" value={d.totalItems ?? 0} icon="□" />
-      <Stat label="Raw materials" value={d.rawMaterials ?? 0} icon="◈" />
-      <Stat label="Finished goods" value={d.finishedGoods ?? 0} icon="✓" />
-      <Stat label="Low stock" value={d.lowStock ?? 0} icon="!" tone={d.lowStock ? 'warning' : 'good'} />
-      <Stat label="Ledger entries" value={d.ledgerEntries ?? 0} icon="◷" />
+    <div className="dashboard-head">
+      <div>
+        <div className="eyebrow">BUSINESS OVERVIEW</div>
+        <h1>{org?.name}</h1>
+        <p>Good morning. Here is your current stock and production position.</p>
+      </div>
+      <button className="dashboard-company" onClick={() => onNavigate('Dashboard')}>
+        <span className="company-avatar">{org?.name?.slice(0, 1)?.toUpperCase()}</span>
+        <span><small>Company</small><strong>{org?.name}</strong></span>
+      </button>
     </div>
-    <section className="section-block"><div className="section-title"><div><h2>Quick actions</h2><p>Jump directly to common setup and production tasks.</p></div></div>
+
+    <div className="business-status">
+      <div className="status-title"><span className="status-dot" /> Business status</div>
+      <div className="status-grid">
+        <StatusMetric label="Items" value={d.totalItems ?? 0} />
+        <StatusMetric label="Raw materials" value={d.rawMaterials ?? 0} />
+        <StatusMetric label="Finished goods" value={d.finishedGoods ?? 0} />
+        <StatusMetric label="Low stock" value={d.lowStock ?? 0} tone={d.lowStock ? 'warning' : 'good'} />
+        <StatusMetric label="Production today" value={d.todayProduction ?? 0} tone="blue" />
+      </div>
+    </div>
+
+    <div className="dashboard-grid">
+      <section className="dash-card trend-card">
+        <div className="dash-card-head"><div><h2>Stock movement</h2><p>Last 6 months • quantity in vs quantity out</p></div><span className="period-pill">6 months</span></div>
+        <MiniBarChart data={d.movement ?? []} />
+        <div className="chart-legend"><span><i className="legend-in" /> Stock in</span><span><i className="legend-out" /> Stock out</span></div>
+      </section>
+      <section className="dash-card">
+        <div className="dash-card-head"><div><h2>Production output</h2><p>Finished goods produced by month</p></div></div>
+        <MiniLineChart data={d.movement ?? []} />
+      </section>
+    </div>
+
+    <div className="dashboard-grid lower">
+      <section className="dash-card">
+        <div className="dash-card-head"><div><h2>Low stock</h2><p>Items below the current reorder threshold</p></div><button className="text-action" onClick={() => onNavigate('Stock')}>View stock →</button></div>
+        {(d.lowStockItems ?? []).length === 0 ? <div className="empty-dashboard">✓ All tracked items are above the low-stock threshold.</div> :
+          <div className="stock-list">{d.lowStockItems.map((r: R) => <button key={r.itemId} className="stock-row" onClick={() => onNavigate('Stock')}><span className="stock-item-icon">{r.itemType === 'RAW_MATERIAL' ? 'RM' : 'FG'}</span><span className="stock-item-copy"><strong>{r.name}</strong><small>{r.sku}</small></span><span className="stock-number low">{r.current} <small>{r.unit}</small></span></button>)}</div>}
+      </section>
+      <section className="dash-card">
+        <div className="dash-card-head"><div><h2>Stock position</h2><p>Highest current balances</p></div><button className="text-action" onClick={() => onNavigate('Stock')}>View all →</button></div>
+        {(d.topStock ?? []).length === 0 ? <div className="empty-dashboard">No stock has been recorded yet.</div> :
+          <div className="stock-list">{d.topStock.map((r: R) => <div key={r.itemId} className="stock-row"><span className="stock-item-icon neutral">{r.itemType === 'RAW_MATERIAL' ? 'RM' : 'FG'}</span><span className="stock-item-copy"><strong>{r.name}</strong><small>{r.sku}</small></span><span className="stock-number">{r.current} <small>{r.unit}</small></span></div>)}</div>}
+      </section>
+    </div>
+
+    <section className="section-block dashboard-actions">
+      <div className="section-title"><div><h2>Common tasks</h2><p>Shortcuts for the work you do most often.</p></div></div>
       <div className="action-grid">{actions.map((a) => <button className="action-card" key={a.title} onClick={() => onNavigate(a.tab)}><span className="action-icon">{a.icon}</span><span><strong>{a.title}</strong><small>{a.text}</small></span><b>›</b></button>)}</div>
     </section>
-    <section className="info-panel"><div className="info-icon">✓</div><div><strong>Company-scoped workspace</strong><p>All Phase 1 master data, stock and production activity is isolated to <b>{org?.name}</b>.</p></div></section>
   </>;
+}
+
+function StatusMetric({ label, value, tone = '' }: R) {
+  return <div className={'status-metric ' + tone}><small>{label}</small><strong>{value}</strong></div>;
+}
+
+function MiniBarChart({ data }: { data: R[] }) {
+  const max = Math.max(1, ...data.flatMap((x) => [Number(x.stockIn || 0), Number(x.stockOut || 0)]));
+  return <div className="mini-chart bar-chart" aria-label="Six month stock movement chart">
+    <div className="chart-bars">{data.map((x, i) => <div className="bar-group" key={i}><div className="bars"><span style={{ height: Math.max(3, Number(x.stockIn || 0) / max * 100) + '%' }} /><span className="out" style={{ height: Math.max(3, Number(x.stockOut || 0) / max * 100) + '%' }} /></div><small>{x.month}</small></div>)}</div>
+  </div>;
+}
+
+function MiniLineChart({ data }: { data: R[] }) {
+  const vals = data.map((x) => Number(x.production || 0));
+  const max = Math.max(1, ...vals);
+  const points = vals.map((v, i) => {
+    const x = data.length <= 1 ? 50 : 8 + i * (84 / (data.length - 1));
+    const y = 86 - (v / max) * 68;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return <div className="mini-chart line-chart">
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Production output trend">
+      <path className="chart-grid-line" d="M4 86 H96 M4 52 H96 M4 18 H96" />
+      {points && <polyline className="chart-line" points={points} />}
+      {vals.map((v, i) => { const x = data.length <= 1 ? 50 : 8 + i * (84 / (data.length - 1)); const y = 86 - (v / max) * 68; return <circle key={i} cx={x} cy={y} r="1.8" className="chart-point" />; })}
+    </svg>
+    <div className="line-labels">{data.map((x, i) => <small key={i}>{x.month}</small>)}</div>
+  </div>;
 }
 
 function Stat({ label, value, icon, tone = '' }: R) {
