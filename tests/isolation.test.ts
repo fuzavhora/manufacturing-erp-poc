@@ -177,7 +177,7 @@ describe('company and user management', () => {
     const members=(await call('/api/members',car)).json;
     const m=members.find((x:any)=>x.email==='staff@demo.com');
     expect((await call('/api/members/'+m.id+'/status',car,'PATCH',{status:'SUSPENDED'})).status).toBe(200);
-    expect((await call('/api/items', (await into('staff@demo.com','Carstuff')).token)).status).toBe(403);
+    expect((await call('/api/organizations/switch', (await login('staff@demo.com')).token, 'POST', {organizationId: (await call('/api/organizations', car)).json.find((o:any)=>o.name==='Carstuff').id})).status).toBe(403);
     expect((await call('/api/members/'+m.id+'/status',car,'PATCH',{status:'ACTIVE'})).status).toBe(200);
   });
 });
