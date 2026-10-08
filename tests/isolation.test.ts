@@ -39,7 +39,7 @@ describe('auth + tenancy', () => {
     const l = await login('staff@demo.com'); const aminId = (await call('/api/organizations', car)).json.find((o: any) => o.name === 'Amin Enterprise').id;
     expect((await call('/api/organizations/switch', l.token, 'POST', { organizationId: aminId })).status).toBe(403);
   });
-
+});
 
 describe('items', () => {
   it('7 duplicate SKU rejected in same org', async () => { const sku = 'DUP-' + rnd(); expect((await newItem(car, sku, carUnit)).status).toBe(201); expect((await newItem(car, sku, carUnit)).status).toBe(409); });
