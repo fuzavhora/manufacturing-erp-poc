@@ -326,11 +326,66 @@ function Users() {
 }
 
 function Company() {
-  const [org,setOrg]=useState<R|null>(null),[name,setName]=useState(''),[err,setErr]=useState(''),[saved,setSaved]=useState(false);
-  useEffect(()=>{api('/organization').then((r)=>{setOrg(r);setName(r.name)}).catch((e:any)=>setErr(e.message))},[]);
-  const save=async()=>{try{const r=await api('/organization',{method:'PATCH',body:{name}});setOrg(r);setSaved(true);setTimeout(()=>setSaved(false),2000)}catch(e:any){setErr(e.message)}};
+  const [org,setOrg]=useState<R|null>(null),[members,setMembers]=useState<R[]>([]),[roles,setRoles]=useState<R[]>([]),[invs,setInvs]=useState<R[]>([]);
+  const [name,setName]=useState(''),[err,setErr]=useState(''),[saved,setSaved]=useState(false),[busy,setBusy]=useState(false);
+  const load=async()=>{try{
+    setErr('');
+    const [o,m,r,i]=await Promise.all([api('/organization'),api('/members'),api('/roles'),api('/invitations')]);
+    setOrg(o);setName(o.name);setMembers(m);setRoles(r);setInvs(i);
+  }catch(e:any){setErr(e.message)}};
+  useEffect(()=>{load()},[]);
+  const save=async()=>{
+    try{setBusy(true);setErr('');const r=await api('/organization',{method:'PATCH',body:{name:name.trim()}});setOrg(r);setSaved(true);setTimeout(()=>setSaved(false),2200)}
+    catch(e:any){setErr(e.message)}finally{setBusy(false)}
+  };
   if(!org)return <div className="page-state">{err||'Loading company…'}</div>;
-  return <div className="stack"><section className="data-card"><div className="card-heading"><div><h2>Company settings</h2><p>Manage the identity of the currently selected company.</p></div></div><div className="form-grid"><label>Company name<em>*</em><input value={name} onChange={e=>setName(e.target.value)}/></label><label>Company code<input value={org.code} disabled/></label></div><button className="primary" onClick={save} disabled={name.trim().length<2}>Save company</button>{saved&&<div className="alert success">Company details saved.</div>}{err&&<div className="alert error">{err}</div>}</section></div>;
+  const active=members.filter(m=>m.status==='ACTIVE').length;
+  const pending=invs.filter(i=>i.status==='PENDING').length;
+  const custom=roles.filter(r=>!r.isSystem).length;
+  return <div className="company-page">
+    <section className="company-head">
+      <div><div className="eyebrow">COMPANY MANAGEMENT</div><h1>{org.name}</h1><p>Manage the identity and access workspace for this company.</p></div>
+      <button className="secondary" onClick={()=>load()}>↻ Refresh</button>
+    </section>
+
+    {err&&<div className="alert error company-alert">{err}</div>}
+    {saved&&<div className="alert success company-alert">Company details saved successfully.</div>}
+
+    <section className="company-overview">
+      <div className="company-identity-card">
+        <div className="company-large-avatar">{org.name.slice(0,1).toUpperCase()}</div>
+        <div className="company-identity-copy"><div className="eyebrow">CURRENT WORKSPACE</div><h2>{org.name}</h2><div className="company-code">Company code <strong>{org.code}</strong></div></div>
+      </div>
+      <div className="company-stat"><small>Team members</small><strong>{members.length}</strong><span>{active} active</span></div>
+      <div className="company-stat"><small>Pending invites</small><strong>{pending}</strong><span>Awaiting acceptance</span></div>
+      <div className="company-stat"><small>Custom roles</small><strong>{custom}</strong><span>Company specific</span></div>
+    </section>
+
+    <section className="company-grid">
+      <article className="company-card">
+        <div className="company-card-head"><div><h2>Company profile</h2><p>This information identifies the current workspace.</p></div><span className="settings-badge">OWNER ONLY</span></div>
+        <div className="company-form">
+          <label>Company name<em>*</em><input value={name} onChange={e=>setName(e.target.value)} placeholder="Company name"/></label>
+          <label>Company code<small>Permanent workspace identifier</small><input value={org.code||''} disabled/></label>
+        </div>
+        <div className="company-card-footer"><span>Changes are recorded in the company audit log.</span><button className="primary" onClick={save} disabled={busy||name.trim().length<2||name.trim()===org.name}>{busy?'Saving…':'Save changes'}</button></div>
+      </article>
+
+      <article className="company-card">
+        <div className="company-card-head"><div><h2>Access structure</h2><p>How this company is organized.</p></div></div>
+        <div className="company-structure">
+          <div><span className="structure-icon">♙</span><div><strong>Team members</strong><small>{members.length} people have membership records</small></div></div>
+          <div><span className="structure-icon">◆</span><div><strong>Roles & permissions</strong><small>{roles.length} roles, including system roles</small></div></div>
+          <div><span className="structure-icon">⌛</span><div><strong>Invitations</strong><small>{pending ? pending+' pending invitation'+(pending===1?'':'s') : 'No pending invitations'}</small></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section className="company-guidance">
+      <div className="guidance-icon">i</div>
+      <div><strong>Company-scoped access</strong><p>Members, roles, permissions and ERP data belong to this company. Switching companies changes the active workspace without signing out.</p></div>
+    </section>
+  </div>;
 }
 
 function Roles({ me }: R) {
