@@ -52,7 +52,7 @@ app.post('/api/dev/seed', async (c) => { // dev only: wipes + reseeds
 });
 
 // ---------- authenticated (no org needed) ----------
-app.use('/api/*', async (c, next) => (c.req.path === '/api/auth/login' ? next() : auth(c, next)));
+app.use('/api/*', async (c, next) => (['/api/auth/login','/api/invitations/accept'].includes(c.req.path) ? next() : auth(c, next)));
 const TENANT = ['categories', 'units', 'vehicles', 'items', 'product-applications', 'boms', 'stock', 'production', 'dashboard', 'audit', 'roles', 'members'];
 for (const p of TENANT) app.use(`/api/${p}/*`, tenant);
 
@@ -243,6 +243,9 @@ app.patch('/api/members/:id/role', async (c) => {
   return c.json({ok:true});
 });
 
+app.use('/api/organization', ownerOnly);
+app.use('/api/invitations', ownerOnly);
+app.use('/api/invitations/*', ownerOnly);
 app.use('/api/roles', ownerOnly);
 app.use('/api/roles/*', ownerOnly);
 app.use('/api/members', ownerOnly);
